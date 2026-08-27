@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+wheels/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+.venv*/
+
+# OS / editor / agents
+.DS_Store
+.claude/
+.codex/
+.cursor/
+.grok/
+
+# Intentionally unversioned lockfiles
+uv.lock
+Cargo.lock
+
+# Local files
+ssh
+forks/
+data/
