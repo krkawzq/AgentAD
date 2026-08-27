@@ -1,0 +1,8 @@
+staging=/mnt/shared-storage-user/dnacoding/wangzhongqi/Code/Project/AgentAD/data/.processed.staging-20260828-060531-sQu4Ho
+logs=/mnt/shared-storage-user/dnacoding/wangzhongqi/Code/Project/AgentAD/logs/preprocess/20260828-060531-74403
+process_anomllm.py: rc=0 duration=6s log=/mnt/shared-storage-user/dnacoding/wangzhongqi/Code/Project/AgentAD/logs/preprocess/20260828-060531-74403/process_anomllm.log
+process_dcdetector.py: rc=0 duration=11s log=/mnt/shared-storage-user/dnacoding/wangzhongqi/Code/Project/AgentAD/logs/preprocess/20260828-060531-74403/process_dcdetector.log
+process_easytsad.py: rc=0 duration=12s log=/mnt/shared-storage-user/dnacoding/wangzhongqi/Code/Project/AgentAD/logs/preprocess/20260828-060531-74403/process_easytsad.log
+process_langtime.py: rc=0 duration=62s log=/mnt/shared-storage-user/dnacoding/wangzhongqi/Code/Project/AgentAD/logs/preprocess/20260828-060531-74403/process_langtime.log
+process_crossad.py: rc=0 duration=93s log=/mnt/shared-storage-user/dnacoding/wangzhongqi/Code/Project/AgentAD/logs/preprocess/20260828-060531-74403/process_crossad.log
+process_tsbad.py: rc=0 duration=37s log=/mnt/shared-storage-user/dnacoding/wangzhongqi/Code/Project/AgentAD/logs/preprocess/20260828-060531-74403/process_tsbad.log

@@ -25,11 +25,11 @@ htmlcov/
 .cursor/
 .grok/
 
-# Intentionally unversioned lockfiles
-uv.lock
+# Rust application lockfile remains local in this Python project
 Cargo.lock
 
 # Local files
 ssh
 forks/
 data/
+logs/
