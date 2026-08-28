@@ -398,7 +398,9 @@ class DADA(nn.Module):
             if variance_weight == 1:
                 return uncertainty
             reconstruction = (output.reconstructions.mean(0) - x).square().mean(dim=2)
-            return variance_weight * uncertainty + (1 - variance_weight) * reconstruction
+            return (
+                variance_weight * uncertainty + (1 - variance_weight) * reconstruction
+            )
 
     def load_reference_checkpoint(
         self, path: str | Path, *, strict: bool = True

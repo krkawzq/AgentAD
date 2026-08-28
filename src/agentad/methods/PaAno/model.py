@@ -332,9 +332,7 @@ class PaAno(nn.Module):
                 )
                 for chunk in patches.split(embedding_batch_size)
             ]
-            patch_scores = torch.cat(score_chunks).reshape(
-                x.shape[0], windows.shape[1]
-            )
+            patch_scores = torch.cat(score_chunks).reshape(x.shape[0], windows.shape[1])
             return overlap_average(
                 patch_scores,
                 patch_length=self.config.patch_length,

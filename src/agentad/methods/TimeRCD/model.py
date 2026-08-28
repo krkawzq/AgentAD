@@ -21,7 +21,9 @@ class _RMSNorm(nn.Module):
         self.epsilon = epsilon
 
     def forward(self, x: Tensor) -> Tensor:
-        normalized = x * torch.rsqrt(x.float().square().mean(-1, keepdim=True) + self.epsilon)
+        normalized = x * torch.rsqrt(
+            x.float().square().mean(-1, keepdim=True) + self.epsilon
+        )
         return (normalized * self.scale).to(x.dtype)
 
 
@@ -87,9 +89,13 @@ class _RelativeAttention(nn.Module):
         query = self._apply_rope(self.q_proj(x), frequencies)
         key = self._apply_rope(self.k_proj(x), frequencies)
         value = self.v_proj(x)
-        query = query.reshape(batch, tokens, self.num_heads, self.head_dim).transpose(1, 2)
+        query = query.reshape(batch, tokens, self.num_heads, self.head_dim).transpose(
+            1, 2
+        )
         key = key.reshape(batch, tokens, self.num_heads, self.head_dim).transpose(1, 2)
-        value = value.reshape(batch, tokens, self.num_heads, self.head_dim).transpose(1, 2)
+        value = value.reshape(batch, tokens, self.num_heads, self.head_dim).transpose(
+            1, 2
+        )
         logits = query @ key.transpose(-2, -1) / math.sqrt(self.head_dim)
         if self.binary_attention_bias is not None:
             logits = logits + self.binary_attention_bias(feature_ids)
@@ -148,17 +154,27 @@ class _TimeSeriesEncoder(nn.Module):
 
     def forward(self, series: Tensor, valid_mask: Tensor) -> Tensor:
         batch, time, features = series.shape
-        padded_length = math.ceil(time / self.config.patch_length) * self.config.patch_length
+        padded_length = (
+            math.ceil(time / self.config.patch_length) * self.config.patch_length
+        )
         if padded_length != time:
-            series = F.pad(series.transpose(1, 2), (0, padded_length - time)).transpose(1, 2)
+            series = F.pad(series.transpose(1, 2), (0, padded_length - time)).transpose(
+                1, 2
+            )
             valid_mask = F.pad(valid_mask, (0, padded_length - time), value=False)
         patch_count = padded_length // self.config.patch_length
-        patches = series.reshape(
-            batch, patch_count, self.config.patch_length, features
-        ).permute(0, 3, 1, 2).reshape(batch, features * patch_count, self.config.patch_length)
-        feature_ids = torch.arange(features, device=series.device).repeat_interleave(patch_count)
+        patches = (
+            series.reshape(batch, patch_count, self.config.patch_length, features)
+            .permute(0, 3, 1, 2)
+            .reshape(batch, features * patch_count, self.config.patch_length)
+        )
+        feature_ids = torch.arange(features, device=series.device).repeat_interleave(
+            patch_count
+        )
         feature_ids = feature_ids[None].expand(batch, -1)
-        patch_mask = valid_mask.reshape(batch, patch_count, self.config.patch_length).any(-1)
+        patch_mask = valid_mask.reshape(
+            batch, patch_count, self.config.patch_length
+        ).any(-1)
         token_mask = patch_mask[:, None].expand(-1, features, -1).reshape(batch, -1)
         hidden = self.embedding_layer(patches)
         frequencies = self.rope_embedder(hidden.shape[1]).to(hidden.device)
@@ -213,12 +229,16 @@ class TimeRCD(nn.Module):
             nn.Linear(config.projection_dim // 2, 2),
         )
 
-    def forward(self, series: Tensor, valid_mask: Tensor | None = None) -> TimeRCDOutput:
+    def forward(
+        self, series: Tensor, valid_mask: Tensor | None = None
+    ) -> TimeRCDOutput:
         series = validate_series(series, min_length=1)
         if series.shape[2] != self.config.input_features:
             raise ValueError("series feature count does not match the Time-RCD config")
         if valid_mask is None:
-            valid_mask = torch.ones(series.shape[:2], device=series.device, dtype=torch.bool)
+            valid_mask = torch.ones(
+                series.shape[:2], device=series.device, dtype=torch.bool
+            )
         if valid_mask.shape != series.shape[:2]:
             raise ValueError("valid_mask must have shape [batch, time]")
         embeddings = self.ts_encoder(series, valid_mask)
@@ -226,15 +246,18 @@ class TimeRCD(nn.Module):
         reconstruction = self.reconstruction_head(embeddings).squeeze(-1)
         return TimeRCDOutput(embeddings, logits, reconstruction)
 
-    def _random_mask(
-        self, series: Tensor, generator: torch.Generator | None
-    ) -> Tensor:
+    def _random_mask(self, series: Tensor, generator: torch.Generator | None) -> Tensor:
         patches = math.ceil(series.shape[1] / self.config.patch_length)
-        selected = torch.rand(
-            series.shape[0], patches, device=series.device, generator=generator
-        ) < self.config.mask_ratio
+        selected = (
+            torch.rand(
+                series.shape[0], patches, device=series.device, generator=generator
+            )
+            < self.config.mask_ratio
+        )
         selected[:, 0] |= ~selected.any(1)
-        return selected.repeat_interleave(self.config.patch_length, dim=1)[:, : series.shape[1]]
+        return selected.repeat_interleave(self.config.patch_length, dim=1)[
+            :, : series.shape[1]
+        ]
 
     def compute_loss(
         self,
@@ -251,7 +274,8 @@ class TimeRCD(nn.Module):
             raise ValueError("masked_points must have shape [batch, time]")
         masked = series.masked_scatter(
             masked_points[..., None].expand_as(series),
-            0.1 * torch.randn(
+            0.1
+            * torch.randn(
                 int(masked_points.sum()) * series.shape[2],
                 device=series.device,
                 dtype=series.dtype,
@@ -284,7 +308,9 @@ class TimeRCD(nn.Module):
             raise ValueError("batch_size must be positive")
         with evaluation_mode(self):
             mean = series.mean(1, keepdim=True)
-            scale = series.std(1, keepdim=True, unbiased=False).clamp_min(self.config.epsilon)
+            scale = series.std(1, keepdim=True, unbiased=False).clamp_min(
+                self.config.epsilon
+            )
             normalized = (series - mean) / scale
             batch, time, features = normalized.shape
             window = min(time, self.config.inference_window)
@@ -297,7 +323,8 @@ class TimeRCD(nn.Module):
                 ).transpose(1, 2)
             chunks = normalized.reshape(batch, -1, window, features)
             valid = torch.arange(window, device=series.device)[None, :] < (
-                time - torch.arange(chunks.shape[1], device=series.device)[:, None] * window
+                time
+                - torch.arange(chunks.shape[1], device=series.device)[:, None] * window
             ).clamp(min=0, max=window)
             valid = valid[None].expand(batch, -1, -1).reshape(-1, window)
             flattened = chunks.flatten(0, 1)

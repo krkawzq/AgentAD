@@ -57,8 +57,7 @@ class KANAD(nn.Module):
         values = windows.transpose(1, 2).reshape(batch * features, self.config.window)
         basis = self.periodic_basis.to(values.dtype).expand(values.shape[0], -1, -1)
         nonlinear = torch.cos(
-            self.harmonic_orders.to(values.dtype)[None, :, None]
-            * values[:, None, :]
+            self.harmonic_orders.to(values.dtype)[None, :, None] * values[:, None, :]
         )
         expanded = torch.cat((basis, nonlinear, values[:, None, :]), dim=1)
         hidden = self.activation(self.norm1(self.initial(expanded)))

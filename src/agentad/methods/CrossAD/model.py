@@ -320,10 +320,7 @@ class CrossAD(nn.Module):
         output = self(x)
         reconstruction = F.mse_loss(output.reconstruction, output.target)
         context = output.context_loss.mean()
-        total = (
-            reconstruction
-            + self.config.context_loss_weight * context
-        )
+        total = reconstruction + self.config.context_loss_weight * context
         return CrossADLoss(total, reconstruction, context)
 
     @torch.inference_mode()

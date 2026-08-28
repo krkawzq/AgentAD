@@ -24,7 +24,7 @@ class _CausalDepthwiseConv(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         output = self.conv(x.transpose(1, 2))
         if self.padding:
-            output = output[..., :-self.padding]
+            output = output[..., : -self.padding]
         return output.transpose(1, 2)
 
 
@@ -59,7 +59,11 @@ class _ScalarLSTM(nn.Module):
             stabilized_forget = torch.exp(forget_gate + stabilizer - next_stabilizer)
             cell = stabilized_forget * cell + stabilized_input * candidate
             normalizer = stabilized_forget * normalizer + stabilized_input
-            hidden = torch.sigmoid(output_gate.reshape_as(hidden)) * cell / normalizer.clamp_min(1)
+            hidden = (
+                torch.sigmoid(output_gate.reshape_as(hidden))
+                * cell
+                / normalizer.clamp_min(1)
+            )
             stabilizer = next_stabilizer
             outputs.append(hidden.flatten(1))
         return torch.stack(outputs, dim=1)
@@ -107,7 +111,11 @@ class _MatrixLSTM(nn.Module):
             )
             numerator = (matrix @ query[..., None]).squeeze(-1)
             denominator = (normalizer * query).sum(-1).abs().clamp_min(1)[..., None]
-            hidden = torch.sigmoid(self.output_gate(value)).reshape_as(query) * numerator / denominator
+            hidden = (
+                torch.sigmoid(self.output_gate(value)).reshape_as(query)
+                * numerator
+                / denominator
+            )
             stabilizer = next_stabilizer
             outputs.append(hidden.flatten(1))
         return torch.stack(outputs, dim=1)

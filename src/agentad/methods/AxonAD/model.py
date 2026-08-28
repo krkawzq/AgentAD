@@ -23,7 +23,7 @@ class _CausalConv1d(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         output = self.conv(x)
-        return output[..., :-self.padding] if self.padding else output
+        return output[..., : -self.padding] if self.padding else output
 
 
 class _QueryPredictor(nn.Module):
@@ -58,9 +58,13 @@ class _PredictiveAttention(nn.Module):
         self.predictor = _QueryPredictor(config)
 
     def _heads(self, x: Tensor) -> Tensor:
-        return x.reshape(x.shape[0], x.shape[1], self.heads, self.head_dim).transpose(1, 2)
+        return x.reshape(x.shape[0], x.shape[1], self.heads, self.head_dim).transpose(
+            1, 2
+        )
 
-    def forward(self, teacher: Tensor, history: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+    def forward(
+        self, teacher: Tensor, history: Tensor
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
         real_query = self._heads(self.query(teacher))
         key = self._heads(self.key(teacher))
         value = self._heads(self.value(teacher))
@@ -68,7 +72,13 @@ class _PredictiveAttention(nn.Module):
         shifted = (
             history
             if shift == 0
-            else torch.cat((history.new_zeros(history.shape[0], shift, history.shape[2]), history[:, :-shift]), dim=1)
+            else torch.cat(
+                (
+                    history.new_zeros(history.shape[0], shift, history.shape[2]),
+                    history[:, :-shift],
+                ),
+                dim=1,
+            )
         )
         predicted_query = self._heads(self.predictor(shifted))
         context = F.scaled_dot_product_attention(real_query, key, value)
@@ -100,7 +110,9 @@ class AxonAD(nn.Module):
         super().__init__()
         self.config = config
         self.embedding = nn.Linear(config.input_features, config.model_dim)
-        self.position = nn.Parameter(torch.randn(1, config.window_length, config.model_dim) * 0.02)
+        self.position = nn.Parameter(
+            torch.randn(1, config.window_length, config.model_dim) * 0.02
+        )
         self.input_norm = nn.LayerNorm(config.model_dim)
         self.output_norm = nn.LayerNorm(config.model_dim)
         self.attention = _PredictiveAttention(config)
@@ -136,7 +148,9 @@ class AxonAD(nn.Module):
         self.target_position.requires_grad_(False)
 
     def _training_mask(self, batch: int, device: torch.device) -> Tensor:
-        mask = torch.zeros(batch, self.config.window_length, device=device, dtype=torch.bool)
+        mask = torch.zeros(
+            batch, self.config.window_length, device=device, dtype=torch.bool
+        )
         if not self.training:
             return mask
         start = self.config.forecast_steps
@@ -198,7 +212,11 @@ class AxonAD(nn.Module):
             * F.normalize(output.target_query, dim=-1)
         ).sum(-1)
         mask = output.training_mask[:, None].expand_as(distance)
-        return distance.masked_select(mask).mean() if mask.any() else distance.new_zeros(())
+        return (
+            distance.masked_select(mask).mean()
+            if mask.any()
+            else distance.new_zeros(())
+        )
 
     def compute_loss(self, windows: Tensor) -> AxonADLoss:
         output = self(windows)
@@ -221,8 +239,12 @@ class AxonAD(nn.Module):
             (self.target_query, self.attention.query),
         )
         for target, online in pairs:
-            for target_parameter, online_parameter in zip(target.parameters(), online.parameters()):
-                target_parameter.mul_(momentum).add_(online_parameter, alpha=1 - momentum)
+            for target_parameter, online_parameter in zip(
+                target.parameters(), online.parameters()
+            ):
+                target_parameter.mul_(momentum).add_(
+                    online_parameter, alpha=1 - momentum
+                )
         self.target_position.mul_(momentum).add_(self.position, alpha=1 - momentum)
 
     def _window_components(self, windows: Tensor) -> tuple[Tensor, Tensor]:
@@ -236,17 +258,23 @@ class AxonAD(nn.Module):
             normal_series, min_length=self.config.window_length, name="normal_series"
         )
         with evaluation_mode(self):
-            windows = sliding_windows(normal_series, self.config.window_length).flatten(0, 1)
-            components = [self._window_components(chunk) for chunk in windows.split(batch_size)]
+            windows = sliding_windows(normal_series, self.config.window_length).flatten(
+                0, 1
+            )
+            components = [
+                self._window_components(chunk) for chunk in windows.split(batch_size)
+            ]
             mse = torch.cat([item[0] for item in components])
             representation = torch.cat([item[1] for item in components])
             self.mse_median.copy_(mse.median())
-            self.mse_iqr.copy_((mse.quantile(0.75) - mse.quantile(0.25)).clamp_min(self.config.epsilon))
+            self.mse_iqr.copy_(
+                (mse.quantile(0.75) - mse.quantile(0.25)).clamp_min(self.config.epsilon)
+            )
             self.representation_median.copy_(representation.median())
             self.representation_iqr.copy_(
-                (representation.quantile(0.75) - representation.quantile(0.25)).clamp_min(
-                    self.config.epsilon
-                )
+                (
+                    representation.quantile(0.75) - representation.quantile(0.25)
+                ).clamp_min(self.config.epsilon)
             )
             self.calibrated.fill_(True)
 
@@ -258,7 +286,9 @@ class AxonAD(nn.Module):
         with evaluation_mode(self):
             windows = sliding_windows(series, self.config.window_length)
             flattened = windows.flatten(0, 1)
-            components = [self._window_components(chunk) for chunk in flattened.split(batch_size)]
+            components = [
+                self._window_components(chunk) for chunk in flattened.split(batch_size)
+            ]
             mse = torch.cat([item[0] for item in components])
             representation = torch.cat([item[1] for item in components])
             window_scores = (

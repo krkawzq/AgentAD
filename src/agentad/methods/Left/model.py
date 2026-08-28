@@ -566,9 +566,7 @@ class Left(nn.Module):
             output.multiscale_target,
             reduction="none",
         ).split(self.temporal_lengths[1:], dim=1)
-        multiscale = torch.stack(
-            [error.mean() for error in multiscale_errors]
-        ).mean()
+        multiscale = torch.stack([error.mean() for error in multiscale_errors]).mean()
         multiscale = (
             multiscale
             + self.config.band_regularization_weight * self.spectral_bands.regularizer()

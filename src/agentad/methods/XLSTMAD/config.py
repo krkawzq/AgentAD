@@ -32,7 +32,9 @@ class XLSTMADConfig:
                 raise ValueError(f"{name} must be positive")
         if self.embedding_dim % self.heads:
             raise ValueError("embedding_dim must be divisible by heads")
-        if any(index < 0 or index >= self.blocks for index in self.scalar_memory_blocks):
+        if any(
+            index < 0 or index >= self.blocks for index in self.scalar_memory_blocks
+        ):
             raise ValueError("scalar_memory_blocks contains an invalid block index")
         if self.feedforward_factor <= 0 or not 0 <= self.dropout < 1:
             raise ValueError("feedforward_factor must be positive and dropout in [0,1)")

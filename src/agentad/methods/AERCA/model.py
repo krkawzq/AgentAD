@@ -119,9 +119,7 @@ class AERCA(nn.Module):
             raise ValueError("x feature count does not match the AERCA config")
         return x
 
-    def _encode_series(
-        self, x: Tensor
-    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+    def _encode_series(self, x: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor]:
         batch = x.shape[0]
         encoder_windows = sliding_windows(x, self.config.window + 1)
         histories = encoder_windows[:, :, :-1]

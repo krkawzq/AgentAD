@@ -56,14 +56,17 @@ class MMPAD(nn.Module):
         self_join: bool,
     ) -> Tensor:
         dimensions = self._dimension_count(query.shape[-1])
-        exclusion = max(1, int(self.config.exclusion_fraction * self.config.subsequence_length))
+        exclusion = max(
+            1, int(self.config.exclusion_fraction * self.config.subsequence_length)
+        )
         reference_positions = torch.arange(reference.shape[0], device=query.device)
         chunks: list[Tensor] = []
         for start in range(0, query.shape[0], self.config.query_chunk_size):
             stop = min(start + self.config.query_chunk_size, query.shape[0])
-            correlation = torch.einsum(
-                "qlc,rlc->qrc", query[start:stop], reference
-            ) / self.config.subsequence_length
+            correlation = (
+                torch.einsum("qlc,rlc->qrc", query[start:stop], reference)
+                / self.config.subsequence_length
+            )
             similarity = correlation.kthvalue(dimensions, dim=2).values
             if self_join:
                 query_positions = torch.arange(start, stop, device=query.device)
@@ -114,7 +117,9 @@ class MMPAD(nn.Module):
             outputs: list[Tensor] = []
             if self.reference_patches.numel():
                 if self.reference_patches.shape[-1] != series.shape[-1]:
-                    raise ValueError("series feature count differs from the fitted reference")
+                    raise ValueError(
+                        "series feature count differs from the fitted reference"
+                    )
                 reference = self.reference_patches
                 for query in query_batches:
                     outputs.append(
