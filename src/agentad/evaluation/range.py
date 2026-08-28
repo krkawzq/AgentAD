@@ -952,3 +952,142 @@ def _best_affiliation_f1_prepared(
     thresholds: NDArray[np.float64],
 ) -> float:
     return float(_best_affiliation_f1(labels, scores, thresholds))
+
+
+def interval_prf(y_true: ArrayLike, y_pred: ArrayLike) -> PRF1:
+    """Return overlap-count precision, recall and F1 over intervals.
+
+    ``y_true`` and ``y_pred`` must be equally sized, non-empty,
+    one-dimensional binary vectors. Each contiguous positive run is one
+    interval. A predicted interval contributes once for every labelled
+    interval it overlaps.
+    """
+    labels, predictions = _fixed_pair(y_true, y_pred)
+    return _triplet(_interval_prf(labels, predictions))
+
+
+def best_interval_f1(
+    y_true: ArrayLike, y_score: ArrayLike, *, threshold_count: int = 100
+) -> float:
+    """Return oracle-best interval F1 on a deterministic threshold grid.
+
+    ``y_true`` must be binary and ``y_score`` must be an equally sized finite
+    numeric vector with larger values denoting stronger anomalies.
+    ``threshold_count`` must be at least two.
+    """
+    labels, scores = validate_pair(y_true, y_score)
+    thresholds = threshold_grid(scores, threshold_count)
+    return float(_best_interval_prf(labels, scores, thresholds)[2])
+
+
+def _buffer_points(maximum: int, splits: int, include_zero: bool) -> NDArray[np.int64]:
+    maximum = non_negative_integer(maximum, name="buffer")
+    splits = non_negative_integer(splits, name="buffer_splits")
+    if splits < 1:
+        raise ValueError("buffer_splits must be at least 1")
+    if not isinstance(include_zero, (bool, np.bool_)):
+        raise TypeError("include_zero must be a boolean")
+    start = 0.0 if include_zero else maximum / splits
+    count = splits + 1 if include_zero else splits
+    return np.ascontiguousarray(
+        np.linspace(start, maximum, num=count, dtype=np.int64)
+    )
+
+
+def _rank_thresholds(
+    scores: NDArray[np.float64], count: int
+) -> NDArray[np.float64]:
+    count = validate_threshold_count(count, name="pate_threshold_count")
+    descending = np.sort(scores)[::-1]
+    indices = np.linspace(0, scores.size - 1, min(count, scores.size)).astype(
+        np.int64
+    )
+    sampled = descending[indices]
+    keep = np.concatenate(([True], sampled[1:] != sampled[:-1]))
+    return np.ascontiguousarray(sampled[keep])
+
+
+def pate_prf(
+    y_true: ArrayLike,
+    y_pred: ArrayLike,
+    *,
+    early_buffer: int = 100,
+    delayed_buffer: int = 100,
+) -> PRF1:
+    """Return early/delayed weighted PATE precision, recall and F1.
+
+    ``y_true`` and ``y_pred`` must be equal-length binary vectors. Buffers are
+    non-negative point counts around each contiguous labelled event; adjacent
+    event zones are clipped so they do not overlap. Results are NaN when no
+    labelled event exists.
+    """
+    labels, predictions = _fixed_pair(y_true, y_pred)
+    early_buffer = non_negative_integer(early_buffer, name="early_buffer")
+    delayed_buffer = non_negative_integer(delayed_buffer, name="delayed_buffer")
+    precision, recall = _pate_pr(
+        labels, predictions, early_buffer, delayed_buffer
+    )
+    f1 = (
+        2.0 * precision * recall / (precision + recall)
+        if precision + recall
+        else 0.0
+    )
+    return PRF1(float(precision), float(recall), float(f1))
+
+
+def pate(
+    y_true: ArrayLike,
+    y_score: ArrayLike,
+    *,
+    early_buffer: int = 100,
+    delayed_buffer: int = 100,
+    buffer_splits: int = 1,
+    include_zero: bool = False,
+    threshold_count: int = 250,
+) -> float:
+    """Return area under the weighted PATE precision-recall curve.
+
+    ``y_true`` must be binary and ``y_score`` must be an equally sized finite
+    numeric vector where larger values mean more anomalous. Buffers are
+    non-negative point counts, ``buffer_splits`` is positive, and
+    ``threshold_count`` is at least two. The returned area is averaged over the
+    Cartesian product of sampled early and delayed buffers.
+    """
+    labels, scores = validate_pair(y_true, y_score)
+    thresholds = _rank_thresholds(scores, threshold_count)
+    early = _buffer_points(early_buffer, buffer_splits, include_zero)
+    delayed = _buffer_points(delayed_buffer, buffer_splits, include_zero)
+    return float(_pate_auc(labels, scores, thresholds, early, delayed)[0])
+
+
+def pate_f1(
+    y_true: ArrayLike,
+    y_score: ArrayLike,
+    *,
+    y_pred: ArrayLike | None = None,
+    early_buffer: int = 100,
+    delayed_buffer: int = 100,
+    buffer_splits: int = 1,
+    include_zero: bool = False,
+    threshold_count: int = 250,
+) -> float:
+    """Return PATE F1 averaged across configured buffer pairs.
+
+    Labels, scores and buffer parameters follow :func:`pate`. If supplied,
+    ``y_pred`` must be an equal-length binary vector and is evaluated as one
+    fixed decision. Otherwise the best score threshold is selected separately
+    for each buffer pair, so the result is oracle performance.
+    """
+    labels, scores = validate_pair(y_true, y_score)
+    early = _buffer_points(early_buffer, buffer_splits, include_zero)
+    delayed = _buffer_points(delayed_buffer, buffer_splits, include_zero)
+    if y_pred is not None:
+        predictions = binary_array(y_pred, name="y_pred")
+        if predictions.size != labels.size:
+            raise ValueError(
+                "y_true and y_pred must have the same length: "
+                f"{labels.size} != {predictions.size}"
+            )
+        return float(_pate_f1(labels, predictions, early, delayed))
+    thresholds = _rank_thresholds(scores, threshold_count)
+    return float(_pate_auc(labels, scores, thresholds, early, delayed)[1])

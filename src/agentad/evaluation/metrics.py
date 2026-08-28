@@ -13,22 +13,6 @@ from typing import Literal, TypeAlias, cast
 import numpy as np
 from numpy.typing import ArrayLike
 
-from ._kernels import (
-    best_affiliation_prf_kernel,
-    best_oracle_prfs_kernel,
-    best_point_adjusted_counts_kernel,
-    best_point_adjusted_prf_kernel,
-    event_prf_kernel,
-    point_adjust_kernel,
-    range_prf_kernel,
-)
-from ._protocol_kernels import (
-    best_interval_prf_kernel,
-    dilate_labels_kernel,
-    interval_prf_kernel,
-    pate_auc_kernel,
-    pate_f1_kernel,
-)
 from ._validation import (
     binary_array,
     non_negative_integer,
@@ -37,26 +21,36 @@ from ._validation import (
     validate_pair,
 )
 from .point import (
+    EventScale,
+    _best_point_adjusted_counts,
+    _best_point_adjusted_prf,
     _best_point_metrics_prepared,
+    _dilate_labels,
+    _event_adjusted_prepared,
+    _k_delay_prepared,
+    _point_adjust,
     _point_adjusted_average_precision_prepared,
     _point_metrics_from_counts,
     _point_metrics_prepared,
     _precision_at_k_prepared,
     _score_metrics_prepared,
 )
-from .protocols import (
-    EventScale,
-    _buffer_points,
-    _event_adjusted_prepared,
-    _k_delay_prepared,
-    _rank_thresholds,
-)
 from .range import (
     _affiliation_prf_prepared,
+    _best_affiliation_prf,
+    _best_interval_prf,
+    _best_oracle_prfs,
+    _buffer_points,
+    _event_prf,
+    _interval_prf,
+    _pate_auc,
+    _pate_f1,
+    _range_prf,
+    _rank_thresholds,
 )
 from .vus import (
     VUSResult,
-    _fixed_vus_prf_kernel,
+    _fixed_vus_prf,
     _volume_under_surface_prepared,
 )
 
@@ -330,10 +324,23 @@ def evaluate(
 ) -> dict[MetricName, float]:
     """Evaluate selected metrics for one score/label pair.
 
+    ``y_true`` must be a non-empty one-dimensional array containing only
+    ``0`` and ``1``. ``y_score`` must be an equally sized, finite numeric
+    vector where larger values mean more anomalous points. If supplied,
+    ``y_pred`` must be another equal-length binary vector. Inputs are converted
+    to contiguous arrays and are not mutated. All event and window parameters
+    are point counts in array order; timestamps are not part of this API.
+
     ``y_pred`` makes all threshold-dependent metrics evaluate the same fixed
     decision. Without it, each such metric uses its own oracle-best threshold,
     matching TSB-AD. Oracle results are useful for score-ranking comparison but
-    must not be reported as deployable threshold performance.
+    must not be reported as deployable threshold performance. Metrics that are
+    mathematically undefined for the supplied label classes return NaN.
+
+    ``metrics`` must contain unique names from :data:`AVAILABLE_METRICS`.
+    Threshold counts are integers of at least two; windows, buffers and
+    tolerances are non-negative integer point counts, except ``k_delay`` and
+    buffer split counts, which must be positive.
     """
     selected = _metric_selection(metrics)
     labels, scores = validate_pair(y_true, y_score)
@@ -464,13 +471,13 @@ def _evaluate_prepared(
     )
     if predictions is None and needs_oracle_prfs:
         assert thresholds is not None
-        oracle_prfs = best_oracle_prfs_kernel(
+        oracle_prfs = _best_oracle_prfs(
             labels, scores, thresholds, range_alpha
         )
 
     if any(name in _PA_METRICS for name in selected):
         if predictions is not None:
-            adjusted = point_adjust_kernel(labels, predictions)
+            adjusted = _point_adjust(labels, predictions)
             pa_metrics = _point_metrics_prepared(labels, adjusted)
             pa_precision, pa_recall, pa_f1 = (
                 pa_metrics.precision,
@@ -482,7 +489,7 @@ def _evaluate_prepared(
             pa_precision, pa_recall, pa_f1 = oracle_prfs[:3]
             if "PA-Accuracy" in selected:
                 assert thresholds is not None
-                pa_counts = best_point_adjusted_counts_kernel(
+                pa_counts = _best_point_adjusted_counts(
                     labels, scores, thresholds
                 )
                 pa_metrics = _point_metrics_from_counts(*pa_counts)
@@ -506,7 +513,7 @@ def _evaluate_prepared(
 
     if any(name in _EVENT_METRICS for name in selected):
         event_values = (
-            event_prf_kernel(labels, predictions)
+            _event_prf(labels, predictions)
             if predictions is not None
             else oracle_prfs[3:6]
         )
@@ -516,7 +523,7 @@ def _evaluate_prepared(
 
     if any(name in _RANGE_METRICS for name in selected):
         range_values = (
-            range_prf_kernel(labels, predictions, range_alpha)
+            _range_prf(labels, predictions, range_alpha)
             if predictions is not None
             else oracle_prfs[6:9]
         )
@@ -532,7 +539,7 @@ def _evaluate_prepared(
         )
         if affiliation is None:
             assert thresholds is not None
-            affiliation_values = best_affiliation_prf_kernel(
+            affiliation_values = _best_affiliation_prf(
                 labels, scores, thresholds
             )
         else:
@@ -567,9 +574,9 @@ def _evaluate_prepared(
 
     if any(name in _INTERVAL_METRICS for name in selected):
         interval_values = (
-            interval_prf_kernel(labels, predictions)
+            _interval_prf(labels, predictions)
             if predictions is not None
-            else best_interval_prf_kernel(labels, scores, thresholds)
+            else _best_interval_prf(labels, scores, thresholds)
         )
         computed["Interval-Precision"] = float(interval_values[0])
         computed["Interval-Recall"] = float(interval_values[1])
@@ -577,9 +584,9 @@ def _evaluate_prepared(
 
     if any(name in _TOLERANCE_METRICS for name in selected):
         tolerance = non_negative_integer(tolerance, name="tolerance")
-        tolerant_labels = dilate_labels_kernel(labels, tolerance)
+        tolerant_labels = _dilate_labels(labels, tolerance)
         if predictions is not None:
-            tolerant_adjusted = point_adjust_kernel(tolerant_labels, predictions)
+            tolerant_adjusted = _point_adjust(tolerant_labels, predictions)
             tolerant_metrics = _point_metrics_prepared(
                 tolerant_labels, tolerant_adjusted
             )
@@ -589,7 +596,7 @@ def _evaluate_prepared(
                 tolerant_metrics.f1,
             )
         else:
-            tolerance_values = best_point_adjusted_prf_kernel(
+            tolerance_values = _best_point_adjusted_prf(
                 tolerant_labels, scores, thresholds
             )
         computed["Tolerance-PA-Precision"] = float(tolerance_values[0])
@@ -599,7 +606,7 @@ def _evaluate_prepared(
     if any(name in _FIXED_VUS_METRICS for name in selected):
         if predictions is None:
             raise ValueError("VUS-Precision, VUS-Recall and VUS-F require y_pred")
-        fixed_vus = _fixed_vus_prf_kernel(labels, predictions, sliding_window)
+        fixed_vus = _fixed_vus_prf(labels, predictions, sliding_window)
         computed["VUS-Precision"] = float(fixed_vus[0])
         computed["VUS-Recall"] = float(fixed_vus[1])
         computed["VUS-F"] = float(fixed_vus[2])
@@ -613,7 +620,7 @@ def _evaluate_prepared(
         )
         if "PATE" in selected or predictions is None:
             pate_thresholds = _rank_thresholds(scores, pate_threshold_count)
-            pate_values = pate_auc_kernel(
+            pate_values = _pate_auc(
                 labels, scores, pate_thresholds, early_buffers, delayed_buffers
             )
             computed["PATE"] = float(pate_values[0])
@@ -621,7 +628,7 @@ def _evaluate_prepared(
                 computed["PATE-F1"] = float(pate_values[1])
         if "PATE-F1" in selected and predictions is not None:
             computed["PATE-F1"] = float(
-                pate_f1_kernel(labels, predictions, early_buffers, delayed_buffers)
+                _pate_f1(labels, predictions, early_buffers, delayed_buffers)
             )
 
     if any(
@@ -654,7 +661,14 @@ def get_metrics(
     version: str = "opt",
     thre: int = 250,
 ) -> dict[MetricName, float]:
-    """Compatibility wrapper for TSB-AD's score-first API."""
+    """Evaluate the nine TSB-AD metrics through its score-first API.
+
+    ``score`` is a non-empty finite one-dimensional anomaly-score vector and
+    ``labels`` is an equal-length binary vector. Optional ``pred`` is an
+    equal-length binary decision. ``slidingWindow`` is a non-negative point
+    count and ``thre`` is an integer of at least two. Only ``version="opt"`` is
+    supported; inputs otherwise follow :func:`evaluate`.
+    """
     if version != "opt":
         raise NotImplementedError("only version='opt' is supported")
     return evaluate(
@@ -674,7 +688,14 @@ def generate_curve(
     version: str = "opt",
     thre: int = 250,
 ):
-    """Compatibility representation of the VUS surfaces."""
+    """Return the TSB-AD tuple representation of the VUS surfaces.
+
+    ``label`` is a non-empty one-dimensional binary vector and ``score`` is an
+    equally sized finite numeric vector with larger values denoting stronger
+    anomalies. ``slidingWindow`` is a non-negative point count and ``thre`` is
+    an integer of at least two. Only ``version="opt"`` is supported. Returned
+    surface arrays are flattened in window-major order.
+    """
     if version != "opt":
         raise NotImplementedError("only version='opt' is supported")
     labels, scores = validate_pair(label, score)

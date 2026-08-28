@@ -2,7 +2,7 @@
 
 This implements the TSB-AD VUS definition while replacing its nested
 ``window x threshold x point`` Python loops with a compiled rank/prefix-sum
-kernel. The algorithm remains serial and uses O(n + windows x thresholds)
+calculation. The algorithm remains serial and uses O(n + windows x thresholds)
 working memory.
 
 Adapted from TheDatumOrg/TSB-AD under Apache-2.0; see
@@ -18,7 +18,6 @@ import numpy as np
 from numba import njit
 from numpy.typing import ArrayLike, NDArray
 
-from ._kernels import binary_runs_kernel
 from ._types import AUCResult, PRF1
 from ._validation import (
     binary_array,
@@ -26,6 +25,7 @@ from ._validation import (
     threshold_count as validate_threshold_count,
     validate_pair,
 )
+from .point import _binary_runs
 
 __all__ = [
     "VUSResult",
@@ -117,7 +117,7 @@ def _extend_labels_into(extended, labels, starts, stops, window):
 
 
 @njit(cache=True, nogil=True)
-def _vus_kernel(
+def _compute_vus(
     labels,
     scores,
     thresholds,
@@ -128,7 +128,7 @@ def _vus_kernel(
 ):
     length = labels.size
     threshold_count = thresholds.size
-    starts, stops = binary_runs_kernel(labels)
+    starts, stops = _binary_runs(labels)
     max_starts, max_stops = _padded_runs(starts, stops, length, window_size)
     max_mask = _mask_runs(max_starts, max_stops, length)
 
@@ -257,8 +257,8 @@ def _vus_kernel(
 
 
 @njit(cache=True, nogil=True)
-def _fixed_vus_prf_kernel(labels, predictions, window_size):
-    starts, stops = binary_runs_kernel(labels)
+def _fixed_vus_prf(labels, predictions, window_size):
+    starts, stops = _binary_runs(labels)
     if starts.size == 0:
         return np.nan, np.nan, np.nan
     length = labels.size
@@ -313,7 +313,14 @@ def volume_under_surface(
     window_size: int = 100,
     threshold_count: int = 250,
 ) -> VUSResult:
-    """Compute VUS-ROC/VUS-PR and their underlying surfaces."""
+    """Compute VUS-ROC/VUS-PR and their underlying surfaces.
+
+    ``y_true`` must be a non-empty one-dimensional binary vector. ``y_score``
+    must be an equally sized finite numeric vector where larger values mean
+    more anomalous points. ``window_size`` is a non-negative point count and
+    ``threshold_count`` must be at least two. Sequence position, not timestamp
+    distance, defines all tolerance windows.
+    """
     labels, scores = validate_pair(y_true, y_score)
     window_size = non_negative_integer(window_size, name="window_size")
     threshold_count = validate_threshold_count(threshold_count)
@@ -333,7 +340,11 @@ def range_auc(
     window_size: int = 100,
     threshold_count: int = 250,
 ) -> AUCResult:
-    """Range-AUC-ROC and Range-AUC-PR at one tolerance window."""
+    """Return Range-AUC-ROC and Range-AUC-PR at one tolerance window.
+
+    Inputs and configuration follow :func:`volume_under_surface`. This returns
+    the curve at exactly ``window_size`` rather than the mean over all windows.
+    """
     result = volume_under_surface(
         y_true,
         y_score,
@@ -349,7 +360,13 @@ def fixed_vus_prf(
     *,
     window_size: int = 100,
 ) -> PRF1:
-    """VUS precision, recall and F1 for one fixed binary decision."""
+    """Return VUS precision, recall and F1 for one fixed binary decision.
+
+    ``y_true`` and ``y_pred`` must be equally sized, non-empty,
+    one-dimensional binary vectors. ``window_size`` is a non-negative point
+    count. Inputs are not mutated, and results are NaN when no labelled event
+    exists.
+    """
     labels = binary_array(y_true, name="y_true")
     predictions = binary_array(y_pred, name="y_pred")
     if labels.size != predictions.size:
@@ -357,7 +374,7 @@ def fixed_vus_prf(
             f"y_true and y_pred must have the same length: {labels.size} != {predictions.size}"
         )
     window_size = non_negative_integer(window_size, name="window_size")
-    precision, recall, f1 = _fixed_vus_prf_kernel(
+    precision, recall, f1 = _fixed_vus_prf(
         labels, predictions, window_size
     )
     return PRF1(float(precision), float(recall), float(f1))
@@ -394,7 +411,7 @@ def _volume_under_surface_prepared(
     sorted_scores = np.ascontiguousarray(scores[descending_order])
     indices = np.linspace(0, scores.size - 1, threshold_count).astype(np.int64)
     thresholds = np.ascontiguousarray(sorted_scores[indices])
-    tpr, fpr, precision, roc_by_window, pr_by_window = _vus_kernel(
+    tpr, fpr, precision, roc_by_window, pr_by_window = _compute_vus(
         labels,
         scores,
         thresholds,

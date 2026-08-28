@@ -24,8 +24,8 @@ from .metrics import (
     _evaluate_prepared,
     _metric_selection,
 )
-from .point import _point_metrics_from_counts
-from .protocols import EventScale, _buffer_points, _event_scale_code
+from .point import EventScale, _event_scale_code, _point_metrics_from_counts
+from .range import _buffer_points
 from ._validation import (
     binary_array,
     non_negative_integer,
@@ -50,7 +50,12 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True)
 class ReconstructedSeries:
-    """One full evaluation sequence reconstructed from stored splits."""
+    """One full evaluation sequence reconstructed from stored splits.
+
+    Arrays have a shared first-axis length and own their storage. ``labels`` is
+    contiguous ``uint8`` containing only zero and one; ``timestamps`` preserves
+    the source's opaque ``int64`` values without sorting or unit conversion.
+    """
 
     id: str
     data: np.ndarray
@@ -73,13 +78,22 @@ class _EvaluationSeries:
 
 @dataclass(slots=True)
 class EvaluationResult:
-    """Per-series results with macro aggregation helpers."""
+    """Per-series results with explicit metric-column ownership.
+
+    ``per_series`` contains one row per requested test id plus audit columns;
+    ``metric_columns`` records the selected metric order. Failed rows remain in
+    the table according to the collection evaluation error policy.
+    """
 
     per_series: pd.DataFrame
     metric_columns: tuple[MetricName, ...]
 
     def summary(self, stat: Literal["mean", "median"] = "mean") -> pd.Series:
-        """Macro-average or median across series, skipping undefined metrics."""
+        """Macro-average or median across series, skipping NaN metric values.
+
+        ``stat`` must be ``"mean"`` or ``"median"``. Every series contributes
+        at most one value per metric, independent of its length.
+        """
         if stat not in ("mean", "median"):
             raise ValueError(f"stat must be 'mean' or 'median', got {stat!r}")
         if self.per_series.empty:
@@ -87,7 +101,11 @@ class EvaluationResult:
         return self.per_series[list(self.metric_columns)].agg(stat, axis=0)
 
     def micro_summary(self) -> pd.Series:
-        """Aggregate standard point metrics from summed confusion counts."""
+        """Aggregate standard point metrics from summed confusion counts.
+
+        The result is defined only when evaluation selected a standard point
+        metric, because TP/FP/FN/TN must be available for every retained row.
+        """
         if self.per_series.empty:
             raise ValueError("cannot micro-aggregate an empty evaluation")
         missing = [
@@ -118,7 +136,11 @@ class EvaluationResult:
     def anomalous_summary(
         self, stat: Literal["mean", "median"] = "mean"
     ) -> pd.Series:
-        """Macro-aggregate only series containing labelled anomaly points."""
+        """Macro-aggregate only series containing labelled anomaly points.
+
+        ``stat`` follows :meth:`summary`. This requires the ``n_anomalies``
+        audit column produced by :func:`evaluate_collection`.
+        """
         if stat not in ("mean", "median"):
             raise ValueError(f"stat must be 'mean' or 'median', got {stat!r}")
         if "n_anomalies" not in self.per_series:
@@ -130,7 +152,7 @@ class EvaluationResult:
 
     @property
     def failures(self) -> pd.DataFrame:
-        """Rows that failed scoring or validation."""
+        """Return rows with a non-null per-series scoring or validation error."""
         if "error" not in self.per_series:
             return self.per_series.iloc[0:0]
         return self.per_series[self.per_series["error"].notna()]
@@ -273,6 +295,11 @@ def reconstruct_series(
 ) -> Iterator[ReconstructedSeries]:
     """Yield test series, optionally prefixed by their matching train split.
 
+    ``test`` and optional ``train`` must be :class:`SeriesData` collections.
+    Every test id must exist in ``train`` when it is supplied; feature schemas,
+    feature attrs and data dtypes must match exactly. Each item must expose the
+    requested binary ``label_column`` with one value per data row.
+
     Split identity defines order: training data is always the prefix even when
     individual split timestamps restart from zero. Every test id must exist in
     ``train`` when a train collection is supplied. Returned arrays own their
@@ -379,9 +406,20 @@ def evaluate_collection(
 ) -> EvaluationResult:
     """Score and evaluate every series in a collection.
 
-    Exactly one of ``score_fn`` and ``scores`` is required. ``on_error`` is a
-    per-series policy; ``raise`` preserves the original exception while the
-    other modes retain an error column for auditability.
+    ``test`` and optional ``train`` follow :func:`reconstruct_series`. Exactly
+    one of ``score_fn`` and ``scores`` is required. A score callback receives
+    ``(train_data_or_none, full_data)`` and must return one finite numeric score
+    per full-sequence row, with larger values meaning more anomalous. A score
+    mapping and optional prediction mapping must contain every evaluated series
+    id; mapped predictions are equal-length binary vectors.
+
+    ``sliding_window="auto"`` estimates a point-count window from the first
+    feature, so train/test feature metadata and dtypes must match. Explicit
+    windows, buffers, delays and tolerances are interpreted in concatenated
+    array order, not timestamp units. ``on_error`` is a per-series policy;
+    ``raise`` preserves the original exception, while ``nan`` and ``zero``
+    retain an error column for auditability. ``save_scores_to`` writes only
+    successfully evaluated, full-length scores as a new series collection.
     """
     if (score_fn is None) == (scores is None):
         raise ValueError("pass exactly one of score_fn and scores")

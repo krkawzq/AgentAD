@@ -9,7 +9,7 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from .._utils import sinusoidal_encoding, validate_series
+from .._utils import evaluation_mode, sinusoidal_encoding, validate_series
 from .config import LeftConfig
 
 
@@ -307,9 +307,7 @@ class LeftOutput:
     time_confidence: Tensor
     frequency_confidence: Tensor
     disagreement: Tensor
-    multiscale_loss: Tensor
-    cycle_loss: Tensor
-    consistency_loss: Tensor
+    spectrum: Tensor
 
 
 @dataclass(frozen=True, slots=True)
@@ -543,24 +541,6 @@ class Left(nn.Module):
         spectral_reconstruction = self.transform.inverse(
             reconstructed_spectrum, length=self.config.sequence_length
         )
-        spectrum_from_time = self.transform(temporal_reconstruction)
-
-        multiscale_errors = F.smooth_l1_loss(
-            multiscale_reconstruction, multiscale_target, reduction="none"
-        ).split(self.temporal_lengths[1:], dim=1)
-        multiscale_loss = torch.stack(
-            [error.mean() for error in multiscale_errors]
-        ).mean()
-        multiscale_loss = (
-            multiscale_loss
-            + self.config.band_regularization_weight * self.spectral_bands.regularizer()
-        )
-        cycle_loss = F.smooth_l1_loss(spectrum_from_time, spectrum) + F.smooth_l1_loss(
-            spectral_reconstruction, x
-        )
-        consistency_loss = F.smooth_l1_loss(
-            multiscale_full, spectral_reconstruction.detach()
-        )
 
         return LeftOutput(
             multiscale_target,
@@ -577,26 +557,38 @@ class Left(nn.Module):
             time_confidence,
             frequency_confidence,
             disagreement,
-            multiscale_loss,
-            cycle_loss,
-            consistency_loss,
+            spectrum,
         )
 
-    def loss_from_output(self, output: LeftOutput) -> LeftLoss:
+    def compute_loss_from_output(self, x: Tensor, output: LeftOutput) -> LeftLoss:
+        multiscale_errors = F.smooth_l1_loss(
+            output.multiscale_reconstruction,
+            output.multiscale_target,
+            reduction="none",
+        ).split(self.temporal_lengths[1:], dim=1)
+        multiscale = torch.stack(
+            [error.mean() for error in multiscale_errors]
+        ).mean()
+        multiscale = (
+            multiscale
+            + self.config.band_regularization_weight * self.spectral_bands.regularizer()
+        )
+        cycle = F.smooth_l1_loss(
+            self.transform(output.temporal_reconstruction), output.spectrum
+        ) + F.smooth_l1_loss(output.spectral_reconstruction, x)
+        consistency = F.smooth_l1_loss(
+            output.multiscale_full_reconstruction,
+            output.spectral_reconstruction.detach(),
+        )
         total = (
-            self.config.multiscale_loss_weight * output.multiscale_loss
-            + self.config.cycle_loss_weight * output.cycle_loss
-            + self.config.consistency_loss_weight * output.consistency_loss
+            self.config.multiscale_loss_weight * multiscale
+            + self.config.cycle_loss_weight * cycle
+            + self.config.consistency_loss_weight * consistency
         )
-        return LeftLoss(
-            total,
-            output.multiscale_loss,
-            output.cycle_loss,
-            output.consistency_loss,
-        )
+        return LeftLoss(total, multiscale, cycle, consistency)
 
-    def loss(self, x: Tensor) -> LeftLoss:
-        return self.loss_from_output(self(x))
+    def compute_loss(self, x: Tensor) -> LeftLoss:
+        return self.compute_loss_from_output(x, self(x))
 
     @torch.no_grad()
     def update_prototypes(self, x: Tensor, output: LeftOutput) -> None:
@@ -627,7 +619,7 @@ class Left(nn.Module):
                 self.config.prototype_momentum,
             )
 
-    def score(self, x: Tensor) -> Tensor:
+    def _score(self, x: Tensor) -> Tensor:
         output = self(x)
         multiscale_errors = F.smooth_l1_loss(
             output.multiscale_reconstruction,
@@ -674,3 +666,8 @@ class Left(nn.Module):
             + self.config.multiscale_score_weight * multiscale_score
         )
         return score.mean(2)
+
+    @torch.inference_mode()
+    def score(self, x: Tensor) -> Tensor:
+        with evaluation_mode(self):
+            return self._score(x)

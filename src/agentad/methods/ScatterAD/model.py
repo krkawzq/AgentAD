@@ -9,7 +9,7 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from .._utils import validate_series
+from .._utils import evaluation_mode, validate_series
 from .config import ScatterADConfig
 
 
@@ -152,7 +152,7 @@ class ScatterAD(nn.Module):
             target_hidden = F.normalize(target_hidden, dim=2)
         return ScatterADOutput(online_hidden, prediction, target_hidden)
 
-    def loss(self, x: Tensor) -> ScatterADLoss:
+    def compute_loss(self, x: Tensor) -> ScatterADLoss:
         output = self(x)
         center = F.normalize(self.center, dim=0)
         scattering = -F.cosine_similarity(
@@ -196,14 +196,18 @@ class ScatterAD(nn.Module):
             else:
                 target.copy_(online)
 
+    @torch.inference_mode()
     def score(self, x: Tensor) -> Tensor:
         """Return center scattering plus adjacent-time inconsistency as ``[B, T]``."""
         x = validate_series(x, min_length=2)
         if x.shape[2] != self.config.input_features:
             raise ValueError("x feature count does not match the ScatterAD config")
-        hidden, _ = self.online_encoder(x)
-        temporal = (hidden[:, 1:] - hidden[:, :-1]).square().mean(dim=2)
-        temporal = F.pad(temporal, (0, 1))
-        distance = torch.linalg.vector_norm(hidden - self.center[None, None, :], dim=2)
-        scattering = distance.clamp_min(self.config.score_epsilon).reciprocal()
-        return scattering + temporal
+        with evaluation_mode(self):
+            hidden, _ = self.online_encoder(x)
+            temporal = (hidden[:, 1:] - hidden[:, :-1]).square().mean(dim=2)
+            temporal = F.pad(temporal, (0, 1))
+            distance = torch.linalg.vector_norm(
+                hidden - self.center[None, None, :], dim=2
+            )
+            scattering = distance.clamp_min(self.config.score_epsilon).reciprocal()
+            return scattering + temporal

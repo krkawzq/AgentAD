@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronRight,
   Database,
+  File,
   FileArchive,
   FileSpreadsheet,
   Folder,
@@ -54,8 +55,10 @@ function toTreeNode(entry) {
 
 function replaceTreeChildren(nodes, key, children) {
   return nodes.map((node) => {
-    if (node.key === key) return { ...node, children };
-    if (!node.children) return node;
+    if (node.key === key) {
+      return { ...node, children, isLeaf: children.length === 0 };
+    }
+    if (!Array.isArray(node.children)) return node;
     return { ...node, children: replaceTreeChildren(node.children, key, children) };
   });
 }
@@ -75,7 +78,11 @@ function treeIcon(props) {
     const Icon = props.expanded ? FolderOpen : Folder;
     return <Icon size={15} aria-hidden="true" />;
   }
-  const Icon = node.format === "csv" ? FileSpreadsheet : FileArchive;
+  const Icon = node.loadable
+    ? node.format === "csv"
+      ? FileSpreadsheet
+      : FileArchive
+    : File;
   return <Icon size={15} aria-hidden="true" />;
 }
 
@@ -124,7 +131,8 @@ function SourceBrowser({ activePath, openingPath, onOpen }) {
   }, []);
 
   const loadData = useCallback(async (node) => {
-    if (node.isLeaf || node.children) return;
+    if (node.isLeaf || Array.isArray(node.children)) return;
+    setError("");
     try {
       const listing = await api("/api/tree", { path: node.key });
       setTreeData((current) =>
@@ -135,6 +143,7 @@ function SourceBrowser({ activePath, openingPath, onOpen }) {
           current.includes(node.key) ? current : [...current, node.key],
         );
       }
+      setError("");
     } catch (requestError) {
       setError(requestError.message);
       throw requestError;
@@ -164,7 +173,7 @@ function SourceBrowser({ activePath, openingPath, onOpen }) {
             showIcon
             icon={treeIcon}
             switcherIcon={switcherIcon}
-            expandAction="doubleClick"
+            expandAction="click"
             loadData={loadData}
             selectedKeys={activePath ? [activePath] : []}
             titleRender={(node) => <SourceTreeTitle node={node} openingPath={openingPath} />}

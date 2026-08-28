@@ -17,6 +17,12 @@ __all__ = ["find_length_rank", "find_period"]
 def find_period(data: ArrayLike, *, rank: int = 1, fallback: int = 125) -> int:
     """Estimate a dominant period from autocorrelation local maxima.
 
+    ``data`` must be non-empty numeric input that becomes one-dimensional after
+    removing singleton axes and whose inspected prefix contains only finite
+    values. ``rank`` is a non-negative integer selecting an autocorrelation
+    peak by strength; ``fallback`` must be positive. Values are assumed to be
+    uniformly ordered samples because timestamps are not accepted.
+
     At most 20,000 points and 400 lags are inspected. ``rank=1`` matches the
     TSB-AD benchmark rule; ``rank=0`` explicitly selects a one-point window.
     """
@@ -55,5 +61,9 @@ def find_period(data: ArrayLike, *, rank: int = 1, fallback: int = 125) -> int:
 
 
 def find_length_rank(data: ArrayLike, rank: int = 1) -> int:
-    """Compatibility alias for TSB-AD's function name."""
+    """Estimate a period using the TSB-AD-compatible function name.
+
+    ``data`` and ``rank`` follow :func:`find_period`; the fallback is fixed at
+    that function's default value.
+    """
     return find_period(data, rank=rank)

@@ -9,6 +9,7 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 
 from .._utils import (
+    evaluation_mode,
     overlap_average,
     sliding_windows,
     topk_cosine_distance,
@@ -148,7 +149,7 @@ class PaAno(nn.Module):
         selected = candidates.gather(1, draws.argmax(1, keepdim=True)).squeeze(1)
         return torch.where(valid.any(1), selected, indices)
 
-    def training_loss(
+    def compute_loss(
         self,
         all_patches: Tensor,
         anchor_indices: Tensor,
@@ -298,12 +299,14 @@ class PaAno(nn.Module):
         patches = windows.flatten(0, 1).transpose(1, 2).contiguous()
         return self.build_memory_bank(patches, batch_size=batch_size)
 
+    @torch.inference_mode()
     def score(
         self,
         x: Tensor,
         *,
         query_chunk_size: int = 2048,
         bank_chunk_size: int = 16384,
+        embedding_batch_size: int = 2048,
     ) -> Tensor:
         """Return overlap-averaged normal-memory distance as ``[B, T]``."""
         x = validate_series(x, min_length=self.config.patch_length)
@@ -313,19 +316,27 @@ class PaAno(nn.Module):
             raise RuntimeError(
                 "call fit_memory() or build_memory_bank() before score()"
             )
-        windows = sliding_windows(x, self.config.patch_length)
-        patches = windows.flatten(0, 1).transpose(1, 2).contiguous()
-        embeddings = self.encoder(patches)
-        patch_scores = topk_cosine_distance(
-            embeddings,
-            self.normal_memory,
-            k=self.config.top_k,
-            query_chunk_size=query_chunk_size,
-            bank_chunk_size=bank_chunk_size,
-            bank_is_normalized=True,
-        ).reshape(x.shape[0], windows.shape[1])
-        return overlap_average(
-            patch_scores,
-            patch_length=self.config.patch_length,
-            output_length=x.shape[1],
-        )
+        if embedding_batch_size <= 0:
+            raise ValueError("embedding_batch_size must be positive")
+        with evaluation_mode(self):
+            windows = sliding_windows(x, self.config.patch_length)
+            patches = windows.flatten(0, 1).transpose(1, 2).contiguous()
+            score_chunks = [
+                topk_cosine_distance(
+                    self.encoder(chunk),
+                    self.normal_memory,
+                    k=self.config.top_k,
+                    query_chunk_size=query_chunk_size,
+                    bank_chunk_size=bank_chunk_size,
+                    bank_is_normalized=True,
+                )
+                for chunk in patches.split(embedding_batch_size)
+            ]
+            patch_scores = torch.cat(score_chunks).reshape(
+                x.shape[0], windows.shape[1]
+            )
+            return overlap_average(
+                patch_scores,
+                patch_length=self.config.patch_length,
+                output_length=x.shape[1],
+            )

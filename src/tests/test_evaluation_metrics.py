@@ -9,15 +9,12 @@ import pytest
 from agentad import SeriesData, SeriesItem
 from agentad.evaluation import (
     AVAILABLE_METRICS,
-    DEFAULT_METRICS,
-    TSB_AD_METRICS,
     average_precision,
     evaluate,
     evaluate_collection,
     event_adjusted_prf,
     first_hit,
     fixed_vus_prf,
-    get_metrics,
     interval_prf,
     k_delay_point_adjusted_prf,
     pate,
@@ -29,13 +26,6 @@ from agentad.evaluation import (
     tolerance_point_adjusted_prf,
     volume_under_surface,
 )
-
-
-def test_metric_catalog_is_complete_and_unique():
-    assert len(AVAILABLE_METRICS) == 51
-    assert len(set(AVAILABLE_METRICS)) == len(AVAILABLE_METRICS)
-    assert set(DEFAULT_METRICS) <= set(AVAILABLE_METRICS)
-    assert len(TSB_AD_METRICS) == 9
 
 
 def test_extended_point_metrics_and_rank_metrics():
@@ -122,7 +112,7 @@ def test_fixed_vus_requires_and_uses_one_binary_decision():
         evaluate(labels, scores, metrics=("VUS-F",))
 
 
-def test_delay_event_interval_and_tolerance_protocols():
+def test_delay_event_interval_and_tolerance_metrics():
     labels = np.array([0, 1, 1, 1, 0], dtype=np.uint8)
     late = np.array([0, 0, 0, 1, 0], dtype=np.uint8)
     assert k_delay_point_adjusted_prf(labels, late, delay=2).f1 == 0.5
@@ -237,8 +227,3 @@ def test_full_catalog_selection_returns_requested_order():
     )
     assert tuple(values) == AVAILABLE_METRICS
     assert all(isinstance(value, float) for value in values.values())
-
-
-def test_tsb_compatibility_wrapper_keeps_nine_columns():
-    result = get_metrics([0.0, 0.9, 0.8, 0.1], [0, 1, 1, 0], slidingWindow=1, thre=5)
-    assert tuple(result) == TSB_AD_METRICS

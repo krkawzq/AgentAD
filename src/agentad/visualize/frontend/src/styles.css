@@ -426,7 +426,20 @@ body.is-resizing-sidebar {
 }
 
 .source-tree .rc-tree-indent-unit {
-  width: 14px;
+  position: relative;
+  display: inline-block;
+  width: 18px;
+  height: 30px;
+  flex: none;
+}
+
+.source-tree .rc-tree-indent-unit::after {
+  position: absolute;
+  top: 0;
+  right: 8px;
+  bottom: 0;
+  border-left: 1px solid #dfe5ec;
+  content: "";
 }
 
 .source-tree .rc-tree-treenode .rc-tree-node-content-wrapper {
@@ -443,14 +456,20 @@ body.is-resizing-sidebar {
   vertical-align: middle;
 }
 
+.source-tree .rc-tree-treenode .rc-tree-node-content-wrapper:active {
+  background: #e3eef8;
+}
+
 .source-tree .rc-tree-title {
   width: 100%;
   min-width: 0;
 }
 
 .source-tree .rc-tree-indent {
-  display: inline-block;
-  height: 0;
+  display: inline-flex;
+  height: 30px;
+  flex: none;
+  align-items: stretch;
 }
 
 .source-tree .rc-tree-node-selected {

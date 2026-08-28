@@ -21,28 +21,21 @@ from .metrics import (
 )
 from .period import find_length_rank, find_period
 from .point import (
+    EventScale,
     PointMetrics,
     average_precision,
+    best_event_adjusted_f1,
+    best_k_delay_point_adjusted_f1,
     best_point_f1,
+    best_tolerance_point_adjusted_f1,
+    event_adjusted_prf,
+    first_hit,
+    k_delay_point_adjusted_prf,
     point_adjust,
     point_adjusted_average_precision,
     point_metrics,
     precision_at_k,
     roc_auc,
-)
-from .protocols import (
-    EventScale,
-    best_event_adjusted_f1,
-    best_interval_f1,
-    best_k_delay_point_adjusted_f1,
-    best_tolerance_point_adjusted_f1,
-    event_adjusted_prf,
-    first_hit,
-    interval_prf,
-    k_delay_point_adjusted_prf,
-    pate,
-    pate_f1,
-    pate_prf,
     tolerance_point_adjusted_prf,
 )
 from .range import (
@@ -52,11 +45,16 @@ from .range import (
     best_affiliation_prf,
     best_event_f1,
     best_event_prf,
+    best_interval_f1,
     best_point_adjusted_f1,
     best_point_adjusted_prf,
     best_range_f1,
     best_range_prf,
     event_prf,
+    interval_prf,
+    pate,
+    pate_f1,
+    pate_prf,
     point_adjusted_prf,
     range_prf,
 )

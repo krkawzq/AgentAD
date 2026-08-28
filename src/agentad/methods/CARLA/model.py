@@ -8,7 +8,7 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from .._utils import overlap_average, sliding_windows, validate_series
+from .._utils import evaluation_mode, overlap_average, sliding_windows, validate_series
 from .config import CARLAConfig
 
 
@@ -126,7 +126,7 @@ class CARLA(nn.Module):
             features, tuple(head(features) for head in self.cluster_heads)
         )
 
-    def pretext_loss(
+    def compute_pretext_loss(
         self,
         anchors: Tensor,
         positives: Tensor,
@@ -168,7 +168,7 @@ class CARLA(nn.Module):
         mean_probability = probabilities.mean(0).clamp_min(1e-8)
         return -(mean_probability * mean_probability.log()).sum()
 
-    def classification_loss(
+    def compute_classification_loss(
         self,
         anchors: Tensor,
         nearest: Tensor,
@@ -210,7 +210,12 @@ class CARLA(nn.Module):
         )
         return CARLALoss(total, consistency, inconsistency, entropy)
 
-    @torch.no_grad()
+    def _encode_batches(self, windows: Tensor, batch_size: int) -> Tensor:
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
+        return torch.cat([self.encode(chunk) for chunk in windows.split(batch_size)])
+
+    @torch.inference_mode()
     def mine_neighbors(
         self,
         windows: Tensor,
@@ -218,13 +223,15 @@ class CARLA(nn.Module):
         k: int = 5,
         query_chunk_size: int = 2048,
         bank_chunk_size: int = 16384,
+        encoding_batch_size: int = 2048,
     ) -> tuple[Tensor, Tensor]:
         """Return per-window nearest and furthest indices using bounded memory."""
         if k <= 0 or query_chunk_size <= 0 or bank_chunk_size <= 0:
             raise ValueError("k and chunk sizes must be positive")
-        was_training = self.training
-        self.eval()
-        features = F.normalize(self.encode(windows), dim=1)
+        with evaluation_mode(self):
+            features = F.normalize(
+                self._encode_batches(windows, encoding_batch_size), dim=1
+            )
         if features.shape[0] <= k:
             raise ValueError("neighbor mining requires more than k windows")
         nearest: list[Tensor] = []
@@ -269,42 +276,74 @@ class CARLA(nn.Module):
                 furthest_indices = far_indices.gather(1, selected)
             nearest.append(nearest_indices)
             furthest.append(furthest_indices)
-        self.train(was_training)
         return torch.cat(nearest), torch.cat(furthest)
 
-    @torch.no_grad()
-    def calibrate_normal_clusters(self, normal_windows: Tensor) -> Tensor:
-        was_training = self.training
-        self.eval()
-        logits = self(normal_windows).logits
-        clusters = torch.stack(
-            [
-                head.argmax(1).bincount(minlength=self.config.clusters).argmax()
-                for head in logits
-            ]
-        )
-        self.normal_clusters.copy_(clusters)
-        self.train(was_training)
-        return clusters
+    @torch.inference_mode()
+    def calibrate_normal_clusters(
+        self, normal_windows: Tensor, *, batch_size: int = 2048
+    ) -> Tensor:
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
+        with evaluation_mode(self):
+            counts = torch.zeros(
+                self.config.cluster_heads,
+                self.config.clusters,
+                device=normal_windows.device,
+                dtype=torch.long,
+            )
+            for windows in normal_windows.split(batch_size):
+                for index, logits in enumerate(self(windows).logits):
+                    counts[index] += logits.argmax(1).bincount(
+                        minlength=self.config.clusters
+                    )
+            clusters = counts.argmax(1)
+            self.normal_clusters.copy_(clusters)
+            return clusters
 
-    def score(self, windows: Tensor, *, head: int = 0) -> Tensor:
+    def _window_score(self, windows: Tensor, *, head: int) -> Tensor:
+        probability = self(windows).logits[head].softmax(1)
+        return 1 - probability[:, int(self.normal_clusters[head])]
+
+    @torch.inference_mode()
+    def window_score(self, windows: Tensor, *, head: int = 0) -> Tensor:
         """Return ``1 - P(normal cluster)`` for every input window."""
         if not 0 <= head < self.config.cluster_heads:
             raise IndexError("head is outside the configured cluster heads")
         normal = int(self.normal_clusters[head])
         if normal < 0:
             raise RuntimeError("call calibrate_normal_clusters() before score()")
-        probability = self(windows).logits[head].softmax(1)
-        return 1 - probability[:, normal]
+        with evaluation_mode(self):
+            return self._window_score(windows, head=head)
 
-    def score_series(self, x: Tensor, *, head: int = 0, stride: int = 1) -> Tensor:
+    @torch.inference_mode()
+    def score(
+        self,
+        x: Tensor,
+        *,
+        head: int = 0,
+        stride: int = 1,
+        batch_size: int = 2048,
+    ) -> Tensor:
         """Score overlapping windows and distribute scores back to time points."""
         x = validate_series(x, min_length=self.config.window_length)
-        windows = sliding_windows(x, self.config.window_length, stride)
-        scores = self.score(windows.flatten(0, 1), head=head).reshape(x.shape[0], -1)
-        return overlap_average(
-            scores,
-            patch_length=self.config.window_length,
-            output_length=x.shape[1],
-            stride=stride,
-        )
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
+        if not 0 <= head < self.config.cluster_heads:
+            raise IndexError("head is outside the configured cluster heads")
+        if int(self.normal_clusters[head]) < 0:
+            raise RuntimeError("call calibrate_normal_clusters() before score()")
+        with evaluation_mode(self):
+            windows = sliding_windows(x, self.config.window_length, stride)
+            flattened = windows.flatten(0, 1)
+            scores = torch.cat(
+                [
+                    self._window_score(chunk, head=head)
+                    for chunk in flattened.split(batch_size)
+                ]
+            ).reshape(x.shape[0], -1)
+            return overlap_average(
+                scores,
+                patch_length=self.config.window_length,
+                output_length=x.shape[1],
+                stride=stride,
+            )

@@ -14,7 +14,7 @@ from numba import njit
 from numpy.typing import ArrayLike, NDArray
 
 from ._types import FirstHit, PRF1, PointMetrics
-from ._validation import binary_array, non_negative_integer, validate_pair
+from ._validation import binary_array, non_negative_integer, threshold_grid, validate_pair
 
 EventScale = Literal["squeeze", "log", "sqrt", "raw"]
 
@@ -483,7 +483,19 @@ def _best_point_metrics_prepared(
     fp = int(false_positives[best])
     fn = positives - tp
     tn = labels.size - positives - fp
-    return _point_metrics_from_counts(tp, fp, fn, tn)
+    result = _point_metrics_from_counts(tp, fp, fn, tn)
+    return PointMetrics(
+        result.accuracy,
+        result.precision,
+        result.recall,
+        float(f1[best]),
+        result.mcc,
+        result.f05,
+        result.tp,
+        result.fp,
+        result.fn,
+        result.tn,
+    )
 
 
 def best_point_f1(
@@ -669,8 +681,6 @@ def best_tolerance_point_adjusted_f1(
     ``tolerance`` is a non-negative number of points and ``threshold_count``
     must be at least two; thresholds use the deterministic TSB-AD grid.
     """
-    from ._validation import threshold_grid
-
     labels, scores = validate_pair(y_true, y_score)
     tolerant = _tolerance_labels(labels, tolerance)
     thresholds = threshold_grid(scores, threshold_count)
