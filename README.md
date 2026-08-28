@@ -60,6 +60,31 @@ pandas-supported scalar or MultiIndex schemas, but must be unique; default integ
 column labels are supported. Pass `create_parents=True` to `write()` when output
 parent directories should be created explicitly.
 
+## Evaluation API
+
+The ordinary time-series metric suite is available without importing it into the
+lightweight top-level package:
+
+```python
+from agentad.evaluation import evaluate, evaluate_collection, warmup
+
+warmup()  # run once before timed batch evaluation
+values = evaluate(labels, anomaly_scores)
+fixed_values = evaluate(labels, anomaly_scores, y_pred=predictions)
+
+report = evaluate_collection(
+    test,
+    train,
+    scores={"series-id": full_series_scores},
+)
+macro_average = report.summary()
+```
+
+`evaluate()` follows the `(y_true, y_score)` convention. Without `y_pred`, each
+threshold-dependent F1 metric uses its own TSB-AD-compatible oracle threshold;
+with `y_pred`, every metric evaluates the same fixed decision. See
+`src/agentad/evaluation/README.md` for the metric survey and module boundaries.
+
 ## Build
 
 Run full preprocessing only on a valid PJLab pod, never on the dev box.
@@ -68,7 +93,7 @@ processor in parallel, verifies the build inputs did not change mid-build,
 and publishes `data/processed` atomically with a backup of the previous tree.
 
 ```bash
-./build_all.sh --jobs 4
+scripts/preprocess/build_all.sh --jobs 4
 ```
 
 A failed build is never published; its staging tree is retained for

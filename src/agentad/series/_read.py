@@ -13,8 +13,8 @@ import pandas as pd
 import zarr
 import zarr.storage
 
-from agentad.series._data import SeriesData, _validate_json_basic
-from agentad.series._write import (
+from ._data import SeriesData, _validate_json_basic
+from ._write import (
     ARRAY_DATA,
     ARRAY_OFFSETS,
     ARRAY_TIMESTAMPS,

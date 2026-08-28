@@ -1,5 +1,5 @@
-from agentad.series._data import SeriesData, SeriesItem
-from agentad.series._read import read
-from agentad.series._write import write
+from ._data import SeriesData, SeriesItem
+from ._read import read
+from ._write import write
 
 __all__ = ["SeriesData", "SeriesItem", "read", "write"]

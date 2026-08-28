@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import zarr
 
-from agentad.series._data import SeriesData, _validate_json_basic
+from ._data import SeriesData, _validate_json_basic
 
 __all__ = ["write"]
 

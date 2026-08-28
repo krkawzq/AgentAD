@@ -2,7 +2,7 @@
 # Build the ordinary corpus: run every source processor into a staging tree,
 # then publish it atomically to the output directory.
 #
-# Usage: ./build_all.sh [--jobs N] [--output-dir DIR] [--keep-backup|--no-keep-backup]
+# Usage: scripts/preprocess/build_all.sh [--jobs N] [--output-dir DIR] [--keep-backup|--no-keep-backup]
 #
 # Heavy preprocessing must run on a pod, never on the dev box. The pod has no
 # direct internet access: uv runs with --frozen --offline so a stale .venv
@@ -11,7 +11,7 @@
 # never inside the published data tree.
 set -euo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 cd "$PROJECT_DIR"
 
 jobs=3
@@ -108,8 +108,10 @@ if mv "$staging" "$output"; then
     if $had_output && ! $keep_backup; then
         rm -rf "$backup"
         echo "published=$output backup=removed"
-    else
+    elif $had_output; then
         echo "published=$output backup=$backup"
+    else
+        echo "published=$output"
     fi
 else
     if $had_output && [[ ! -e "$output" ]]; then
