@@ -9,7 +9,7 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from .._utils import sinusoidal_encoding, validate_series
+from .._utils import evaluation_mode, sinusoidal_encoding, validate_series
 from .config import CrossADConfig
 
 
@@ -18,6 +18,13 @@ class CrossADOutput:
     target: Tensor
     reconstruction: Tensor
     context_loss: Tensor
+
+
+@dataclass(frozen=True, slots=True)
+class CrossADLoss:
+    total: Tensor
+    reconstruction: Tensor
+    context: Tensor
 
 
 class _SequenceNorm(nn.Module):
@@ -43,7 +50,9 @@ class _Attention(nn.Module):
         )
         self.output_dropout = nn.Dropout(config.projection_dropout)
 
-    def forward(self, query: Tensor, key: Tensor, value: Tensor, mask: Tensor | None = None) -> Tensor:
+    def forward(
+        self, query: Tensor, key: Tensor, value: Tensor, mask: Tensor | None = None
+    ) -> Tensor:
         output, _ = self.layer(query, key, value, attn_mask=mask, need_weights=False)
         return self.output_dropout(output)
 
@@ -117,7 +126,9 @@ class _PatchEmbedding(nn.Module):
         # Channels are independent samples for the CrossAD encoder.
         x = F.pad(x.transpose(1, 2), (0, self.patch_length - 1), mode="replicate")
         patches = x.unfold(-1, self.patch_length, self.patch_length)
-        return self.projection(patches.reshape(-1, patches.shape[-2], self.patch_length))
+        return self.projection(
+            patches.reshape(-1, patches.shape[-2], self.patch_length)
+        )
 
 
 class _MultiScale(nn.Module):
@@ -133,7 +144,9 @@ class _MultiScale(nn.Module):
             windows = F.pad(channels_first, (0, kernel - 1), mode="replicate").unfold(
                 -1, kernel, kernel
             )
-            sampled = windows.mean(dim=-1) if self.method == "average" else windows[..., 0]
+            sampled = (
+                windows.mean(dim=-1) if self.method == "average" else windows[..., 0]
+            )
             outputs.append(sampled.transpose(1, 2))
         return outputs
 
@@ -148,7 +161,9 @@ class _ContextMemory(nn.Module):
             torch.randn(config.query_count, config.query_length, config.model_dim)
         )
         self.router = nn.Linear(config.sequence_length, config.query_count)
-        self.extractor = nn.ModuleList(_ExtractorLayer(config) for _ in range(config.extractor_layers))
+        self.extractor = nn.ModuleList(
+            _ExtractorLayer(config) for _ in range(config.extractor_layers)
+        )
         self.register_buffer(
             "context",
             torch.randn(config.context_size, config.query_length, config.model_dim),
@@ -173,18 +188,24 @@ class _ContextMemory(nn.Module):
             + flat_context.square().sum(1)
             - 2 * flat_query @ flat_context.T
         )
-        assignments = F.one_hot(distances.argmin(1), self.context.shape[0]).to(query.dtype)
+        assignments = F.one_hot(distances.argmin(1), self.context.shape[0]).to(
+            query.dtype
+        )
         selected = assignments @ flat_context
         loss = F.mse_loss(flat_query, selected.detach(), reduction="none").mean(1)
         assigned_sum = torch.einsum("bn,bqd->nqd", assignments, query)
 
         with torch.no_grad():
-            self.ema_count.mul_(self.decay).add_(assignments.sum(0), alpha=1 - self.decay)
+            self.ema_count.mul_(self.decay).add_(
+                assignments.sum(0), alpha=1 - self.decay
+            )
             self.ema_sum.mul_(self.decay).add_(assigned_sum, alpha=1 - self.decay)
             total = self.ema_count.sum()
-            smoothed = (self.ema_count + self.epsilon) / (
-                total + self.context.shape[0] * self.epsilon
-            ) * total
+            smoothed = (
+                (self.ema_count + self.epsilon)
+                / (total + self.context.shape[0] * self.epsilon)
+                * total
+            )
             self.context.copy_(self.ema_sum / smoothed[:, None, None])
 
         # The forward value is the full EMA bank; gradients reach selected queries.
@@ -208,14 +229,19 @@ class CrossAD(nn.Module):
         self.config = config
         self.multi_scale = _MultiScale(config.scale_kernels, config.scale_method)
         self.patch_embedding = _PatchEmbedding(config.patch_length, config.model_dim)
-        self.encoder = nn.ModuleList(_EncoderLayer(config) for _ in range(config.encoder_layers))
-        self.decoder = nn.ModuleList(_DecoderLayer(config) for _ in range(config.decoder_layers))
+        self.encoder = nn.ModuleList(
+            _EncoderLayer(config) for _ in range(config.encoder_layers)
+        )
+        self.decoder = nn.ModuleList(
+            _DecoderLayer(config) for _ in range(config.decoder_layers)
+        )
         self.decoder_norm = _SequenceNorm(config.model_dim, config.normalization)
         self.patch_projection = nn.Linear(config.model_dim, config.patch_length)
         self.context_memory = _ContextMemory(config)
 
         self.temporal_lengths = tuple(
-            math.ceil(config.sequence_length / kernel) for kernel in config.scale_kernels
+            math.ceil(config.sequence_length / kernel)
+            for kernel in config.scale_kernels
         ) + (config.sequence_length,)
         self.patch_counts = tuple(
             math.ceil(length / config.patch_length) for length in self.temporal_lengths
@@ -223,24 +249,34 @@ class CrossAD(nn.Module):
 
         base_positions = sinusoidal_encoding(self.patch_counts[-1], config.model_dim)
         position_scales = self.multi_scale.down(base_positions)
-        self.register_buffer("position_encoding", torch.cat(position_scales, dim=1), persistent=False)
         self.register_buffer(
-            "encoder_mask", self._group_mask(self.patch_counts[:-1], causal=False), persistent=False
+            "position_encoding", torch.cat(position_scales, dim=1), persistent=False
         )
         self.register_buffer(
-            "decoder_mask", self._group_mask(self.patch_counts[1:], causal=True), persistent=False
+            "encoder_mask",
+            self._group_mask(self.patch_counts[:-1], causal=False),
+            persistent=False,
+        )
+        self.register_buffer(
+            "decoder_mask",
+            self._group_mask(self.patch_counts[1:], causal=True),
+            persistent=False,
         )
 
     @staticmethod
     def _group_mask(lengths: tuple[int, ...], *, causal: bool) -> Tensor:
-        groups = torch.cat([torch.full((length,), index) for index, length in enumerate(lengths)])
+        groups = torch.cat(
+            [torch.full((length,), index) for index, length in enumerate(lengths)]
+        )
         if causal:
             return groups[:, None] < groups[None, :]
         return groups[:, None] != groups[None, :]
 
     def _encode(self, x: Tensor) -> tuple[Tensor, list[Tensor], Tensor]:
         batch, _, features = x.shape
-        independent = x.transpose(1, 2).reshape(batch * features, self.config.sequence_length, 1)
+        independent = x.transpose(1, 2).reshape(
+            batch * features, self.config.sequence_length, 1
+        )
         scaled_values = self.multi_scale.down(independent)
         encoded_groups = [self.patch_embedding(scale) for scale in scaled_values]
         encoded = torch.cat(encoded_groups, dim=1) + self.position_encoding.to(x.dtype)
@@ -258,7 +294,9 @@ class CrossAD(nn.Module):
         context = context.unsqueeze(0).expand(batch * features, -1, -1)
 
         decoder_groups = [
-            F.interpolate(group.transpose(1, 2), size=next_count, mode="nearest").transpose(1, 2)
+            F.interpolate(
+                group.transpose(1, 2), size=next_count, mode="nearest"
+            ).transpose(1, 2)
             for group, next_count in zip(encoded_groups, self.patch_counts[1:])
         ]
         decoded = torch.cat(decoder_groups, dim=1)
@@ -267,7 +305,9 @@ class CrossAD(nn.Module):
         decoded = self.patch_projection(self.decoder_norm(decoded))
 
         reconstructed_groups: list[Tensor] = []
-        for group, target_length in zip(decoded.split(self.patch_counts[1:], dim=1), self.temporal_lengths[1:]):
+        for group, target_length in zip(
+            decoded.split(self.patch_counts[1:], dim=1), self.temporal_lengths[1:]
+        ):
             reconstructed_groups.append(group.flatten(1)[:, :target_length, None])
         reconstruction = torch.cat(reconstructed_groups, dim=1)
 
@@ -276,22 +316,29 @@ class CrossAD(nn.Module):
         context_loss = context_loss.reshape(batch, features).mean(1)
         return CrossADOutput(target, reconstruction, context_loss)
 
-    def loss(self, x: Tensor) -> Tensor:
+    def compute_loss(self, x: Tensor) -> CrossADLoss:
         output = self(x)
         reconstruction = F.mse_loss(output.reconstruction, output.target)
-        return reconstruction + self.config.context_loss_weight * output.context_loss.mean()
+        context = output.context_loss.mean()
+        total = (
+            reconstruction
+            + self.config.context_loss_weight * context
+        )
+        return CrossADLoss(total, reconstruction, context)
 
+    @torch.inference_mode()
     def score(self, x: Tensor) -> Tensor:
         """Return the published multi-scale reconstruction score as ``[B, T]``."""
-        output = self(x)
-        errors = (output.reconstruction - output.target).square()
-        groups = errors.split(self.temporal_lengths[1:], dim=1)
-        finest = groups[-1]
-        for coarse in groups[:-1]:
-            finest = finest + F.interpolate(
-                coarse.transpose(1, 2),
-                size=self.config.sequence_length,
-                mode="linear",
-                align_corners=False,
-            ).transpose(1, 2)
-        return finest.mean(dim=2)
+        with evaluation_mode(self):
+            output = self(x)
+            errors = (output.reconstruction - output.target).square()
+            groups = errors.split(self.temporal_lengths[1:], dim=1)
+            finest = groups[-1]
+            for coarse in groups[:-1]:
+                finest = finest + F.interpolate(
+                    coarse.transpose(1, 2),
+                    size=self.config.sequence_length,
+                    mode="linear",
+                    align_corners=False,
+                ).transpose(1, 2)
+            return finest.mean(dim=2)

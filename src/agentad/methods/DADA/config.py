@@ -38,10 +38,14 @@ class DADAConfig:
         for name, value in positive.items():
             if value <= 0:
                 raise ValueError(f"{name} must be positive")
-        if not self.bottleneck_dims or any(width <= 0 for width in self.bottleneck_dims):
+        if not self.bottleneck_dims or any(
+            width <= 0 for width in self.bottleneck_dims
+        ):
             raise ValueError("bottleneck_dims must contain positive widths")
         if self.experts_per_input > len(self.bottleneck_dims):
-            raise ValueError("experts_per_input cannot exceed the number of bottleneck experts")
+            raise ValueError(
+                "experts_per_input cannot exceed the number of bottleneck experts"
+            )
         if self.mask_mode == "complementary" and self.copies % 2:
             raise ValueError("complementary masking requires an even number of copies")
         for name in ("representation_dropout", "bottleneck_dropout"):

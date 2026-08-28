@@ -32,7 +32,7 @@ from agentad.evaluation import (
 
 
 def test_metric_catalog_is_complete_and_unique():
-    assert len(AVAILABLE_METRICS) == 48
+    assert len(AVAILABLE_METRICS) == 51
     assert len(set(AVAILABLE_METRICS)) == len(AVAILABLE_METRICS)
     assert set(DEFAULT_METRICS) <= set(AVAILABLE_METRICS)
     assert len(TSB_AD_METRICS) == 9
@@ -55,6 +55,17 @@ def test_extended_point_metrics_and_rank_metrics():
     assert hit.fraction == 0.5
     assert not hit.hit_at_3_percent
     assert not hit.hit_at_10_percent
+
+    all_normal = evaluate(
+        np.zeros(4),
+        np.arange(4),
+        metrics=("Standard-Accuracy", "Standard-F1", "PA-Accuracy"),
+    )
+    assert all_normal == {
+        "Standard-Accuracy": 1.0,
+        "Standard-F1": 0.0,
+        "PA-Accuracy": 1.0,
+    }
 
 
 def test_point_adjusted_average_precision_uses_event_maxima():
@@ -88,7 +99,11 @@ def test_fixed_vus_requires_and_uses_one_binary_decision():
     labels = np.array([0, 1, 1, 0, 0], dtype=np.uint8)
     scores = np.array([0.1, 0.9, 0.8, 0.2, 0.3])
     predictions = np.array([0, 1, 0, 0, 0], dtype=np.uint8)
+    labels_before = labels.copy()
+    predictions_before = predictions.copy()
     expected = fixed_vus_prf(labels, predictions, window_size=2)
+    np.testing.assert_array_equal(labels, labels_before)
+    np.testing.assert_array_equal(predictions, predictions_before)
     values = evaluate(
         labels,
         scores,
@@ -143,6 +158,28 @@ def test_pate_perfect_detection_and_undefined_labels():
     ) == pytest.approx(1.0)
     assert math.isnan(pate(np.zeros(4), np.arange(4), threshold_count=4))
 
+    partial_labels = np.array([0, 1, 1, 0, 0, 1, 0], dtype=np.uint8)
+    partial_prediction = np.array([0, 1, 0, 0, 1, 0, 0], dtype=np.uint8)
+    partial = pate_prf(
+        partial_labels, partial_prediction, early_buffer=2, delayed_buffer=2
+    )
+    assert partial.precision == 0.5
+    assert partial.recall == pytest.approx(1 / 3)
+    assert partial.f1 == 0.4
+
+
+def test_exact_pa_uses_event_score_reconstruction():
+    labels = np.array([0, 1, 1, 0, 1, 1, 0], dtype=np.uint8)
+    scores = np.array([0.6, 0.1, 0.9, 0.8, 0.2, 0.7, 0.3])
+    values = evaluate(
+        labels,
+        scores,
+        metrics=("PA-Exact-Precision", "PA-Exact-Recall", "PA-Exact-F1"),
+    )
+    assert values["PA-Exact-Precision"] == 0.8
+    assert values["PA-Exact-Recall"] == 1.0
+    assert values["PA-Exact-F1"] == pytest.approx(8 / 9)
+
 
 def _collection_item(series_id: str, labels: list[int]) -> SeriesItem:
     length = len(labels)
@@ -175,6 +212,11 @@ def test_collection_fixed_predictions_and_micro_summary():
     assert micro["Standard-Precision"] == pytest.approx(2 / 3)
     assert micro["Standard-Recall"] == pytest.approx(2 / 3)
     assert micro["Standard-F1"] == pytest.approx(2 / 3)
+    assert result.per_series["n_anomalies"].tolist() == [2, 1]
+    assert result.per_series["n_events"].tolist() == [1, 1]
+    pd.testing.assert_series_equal(
+        result.anomalous_summary(), result.summary(), check_names=False
+    )
 
 
 def test_full_catalog_selection_returns_requested_order():

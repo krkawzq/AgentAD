@@ -15,6 +15,13 @@ test("clampWindow handles empty and short series", () => {
   assert.deepEqual(core.clampWindow(8, 20, 10), [6, 10]);
 });
 
+test("panel widths stay within accessible resize bounds", () => {
+  assert.equal(core.clampPanelWidth(120), 240);
+  assert.equal(core.clampPanelWidth(337.4), 337);
+  assert.equal(core.clampPanelWidth(900), 520);
+  assert.equal(core.clampPanelWidth(Number.NaN, 260, 480), 260);
+});
+
 test("nearestSampleIndex uses ordered nearest-neighbor lookup", () => {
   assert.equal(core.nearestSampleIndex([], 5), -1);
   assert.equal(core.nearestSampleIndex([0, 10, 20], 6), 1);

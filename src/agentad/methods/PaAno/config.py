@@ -1,0 +1,58 @@
+"""Configuration for PaAno."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
+class PaAnoConfig:
+    input_features: int = 1
+    patch_length: int = 64
+    convolution_widths: tuple[int, ...] = (128, 256, 128, 64)
+    kernel_sizes: tuple[int, ...] = (7, 5, 3, 3)
+    projection_dim: int = 256
+    use_revin: bool = False
+    revin_affine: bool = False
+    revin_epsilon: float = 1e-5
+    revin_min_scale: float = 1e-5
+    positive_radius: int = 2
+    triplet_margin: float = 0.1
+    triplet_scale: float = 0.1
+    pretext_fraction: float = 0.2
+    pretext_weight: float = 1.0
+    random_negatives: int = 5
+    top_k: int = 3
+
+    def __post_init__(self) -> None:
+        positive = {
+            "input_features": self.input_features,
+            "patch_length": self.patch_length,
+            "projection_dim": self.projection_dim,
+            "positive_radius": self.positive_radius,
+            "random_negatives": self.random_negatives,
+            "top_k": self.top_k,
+        }
+        for name, value in positive.items():
+            if value <= 0:
+                raise ValueError(f"{name} must be positive")
+        if not self.convolution_widths or len(self.convolution_widths) != len(
+            self.kernel_sizes
+        ):
+            raise ValueError(
+                "convolution_widths and kernel_sizes must have equal non-zero length"
+            )
+        if any(width <= 0 for width in self.convolution_widths):
+            raise ValueError("convolution widths must be positive")
+        if any(kernel <= 0 or kernel % 2 == 0 for kernel in self.kernel_sizes):
+            raise ValueError("kernel sizes must be positive odd integers")
+        if self.revin_epsilon <= 0 or self.revin_min_scale <= 0:
+            raise ValueError("RevIN epsilon and minimum scale must be positive")
+        if self.triplet_margin < 0 or self.triplet_scale <= 0:
+            raise ValueError(
+                "triplet margin must be non-negative and triplet_scale positive"
+            )
+        if not 0 <= self.pretext_fraction <= 1:
+            raise ValueError("pretext_fraction must be in [0, 1]")
+        if self.pretext_weight < 0:
+            raise ValueError("pretext_weight must be non-negative")

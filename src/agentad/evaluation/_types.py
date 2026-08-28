@@ -43,8 +43,8 @@ class PointMetrics:
     recall: float
     f1: float
     mcc: float
-    f05: float
-    tp: int
-    fp: int
-    fn: int
-    tn: int
+    f05: float = 0.0
+    tp: int = 0
+    fp: int = 0
+    fn: int = 0
+    tn: int = 0

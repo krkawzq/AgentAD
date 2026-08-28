@@ -217,7 +217,7 @@ def best_point_adjusted_counts_kernel(y_true, scores, thresholds):
     starts, stops = binary_runs_kernel(y_true)
     best_f1 = -1.0
     best_tp = 0
-    best_fp = 0
+    best_fp = y_true.size + 1
     best_fn = 0
     best_tn = 0
     for threshold in thresholds:
@@ -226,7 +226,7 @@ def best_point_adjusted_counts_kernel(y_true, scores, thresholds):
         adjusted = _point_adjust_from_runs(prediction, starts, stops)
         tp, fp, fn, tn = confusion_counts_kernel(y_true, adjusted)
         _, _, f1 = _prf_from_counts(tp, fp, fn)
-        if f1 > best_f1:
+        if f1 > best_f1 or (f1 == best_f1 and fp < best_fp):
             best_f1 = f1
             best_tp = tp
             best_fp = fp

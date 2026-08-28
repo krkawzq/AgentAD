@@ -12,7 +12,7 @@ Adapted from TheDatumOrg/TSB-AD under Apache-2.0; see
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from numba import njit
@@ -41,12 +41,16 @@ class VUSResult:
 
     roc: float
     pr: float
-    roc_by_window: NDArray[np.float64]
-    pr_by_window: NDArray[np.float64]
     tpr: NDArray[np.float64]
     fpr: NDArray[np.float64]
     precision: NDArray[np.float64]
     windows: NDArray[np.int64]
+    roc_by_window: NDArray[np.float64] = field(
+        default_factory=lambda: np.empty(0, dtype=np.float64)
+    )
+    pr_by_window: NDArray[np.float64] = field(
+        default_factory=lambda: np.empty(0, dtype=np.float64)
+    )
 
 
 @njit(cache=True, nogil=True)
@@ -376,14 +380,14 @@ def _volume_under_surface_prepared(
         )
         per_window = np.full(window_size + 1, math.nan)
         return VUSResult(
-            math.nan,
-            math.nan,
-            per_window,
-            per_window.copy(),
-            np.full(shape, math.nan),
-            np.full(shape, math.nan),
-            np.full(precision_shape, math.nan),
-            windows,
+            roc=math.nan,
+            pr=math.nan,
+            tpr=np.full(shape, math.nan),
+            fpr=np.full(shape, math.nan),
+            precision=np.full(precision_shape, math.nan),
+            windows=windows,
+            roc_by_window=per_window,
+            pr_by_window=per_window.copy(),
         )
 
     descending_order = np.ascontiguousarray(np.argsort(scores)[::-1], dtype=np.int64)
@@ -400,12 +404,12 @@ def _volume_under_surface_prepared(
         return_surface,
     )
     return VUSResult(
-        float(roc_by_window.mean()),
-        float(pr_by_window.mean()),
-        roc_by_window,
-        pr_by_window,
-        tpr,
-        fpr,
-        precision,
-        windows,
+        roc=float(roc_by_window.mean()),
+        pr=float(pr_by_window.mean()),
+        tpr=tpr,
+        fpr=fpr,
+        precision=precision,
+        windows=windows,
+        roc_by_window=roc_by_window,
+        pr_by_window=pr_by_window,
     )

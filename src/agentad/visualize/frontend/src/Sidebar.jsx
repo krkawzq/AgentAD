@@ -1,15 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowUp,
   Check,
+  ChevronDown,
   ChevronRight,
   Database,
   FileArchive,
   FileSpreadsheet,
   Folder,
+  FolderOpen,
   Layers3,
+  LoaderCircle,
   Search,
 } from "lucide-react";
+import Tree from "rc-tree";
 
 import { api } from "./api.js";
 import { TRACK_COLORS } from "./renderer.js";
@@ -39,110 +42,143 @@ function SidebarTabs({ active, onChange }) {
   );
 }
 
-function Breadcrumbs({ path, onChange }) {
-  const parts = path ? path.split("/") : [];
+function toTreeNode(entry) {
+  return {
+    ...entry,
+    key: entry.path,
+    title: entry.name,
+    isLeaf: !entry.dir || entry.loadable,
+    disabled: !entry.dir && !entry.loadable,
+  };
+}
+
+function replaceTreeChildren(nodes, key, children) {
+  return nodes.map((node) => {
+    if (node.key === key) return { ...node, children };
+    if (!node.children) return node;
+    return { ...node, children: replaceTreeChildren(node.children, key, children) };
+  });
+}
+
+function SourceTreeTitle({ node, openingPath }) {
   return (
-    <nav className="breadcrumbs" aria-label="Source directory">
-      <button type="button" onClick={() => onChange("")} title="Dataset root">
-        Root
-      </button>
-      {parts.map((part, index) => {
-        const target = parts.slice(0, index + 1).join("/");
-        return (
-          <span key={target}>
-            <ChevronRight size={12} aria-hidden="true" />
-            <button type="button" onClick={() => onChange(target)} title={target}>
-              {part}
-            </button>
-          </span>
-        );
-      })}
-    </nav>
+    <span className="source-tree-title" title={node.path}>
+      <span>{node.name}</span>
+      {node.key === openingPath && <LoaderCircle className="spin" size={12} aria-label="Opening" />}
+    </span>
   );
 }
 
+function treeIcon(props) {
+  const node = props.data ?? props;
+  if (node.dir) {
+    const Icon = props.expanded ? FolderOpen : Folder;
+    return <Icon size={15} aria-hidden="true" />;
+  }
+  const Icon = node.format === "csv" ? FileSpreadsheet : FileArchive;
+  return <Icon size={15} aria-hidden="true" />;
+}
+
+function switcherIcon(props) {
+  if (props.loading) return <LoaderCircle className="spin" size={13} aria-hidden="true" />;
+  if (props.isLeaf) return <span className="tree-switcher-spacer" />;
+  const Icon = props.expanded ? ChevronDown : ChevronRight;
+  return <Icon size={13} aria-hidden="true" />;
+}
+
 function SourceBrowser({ activePath, openingPath, onOpen }) {
-  const [path, setPath] = useState("");
-  const [listing, setListing] = useState(null);
+  const treeHost = useRef(null);
+  const [treeData, setTreeData] = useState(null);
+  const [treeHeight, setTreeHeight] = useState(320);
+  const [root, setRoot] = useState("");
+  const [truncatedPaths, setTruncatedPaths] = useState([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
     setError("");
-    api("/api/tree", { path }, controller.signal)
-      .then(setListing)
+    api("/api/tree", {}, controller.signal)
+      .then((listing) => {
+        setRoot(listing.root);
+        setTreeData(listing.entries.map(toTreeNode));
+        setTruncatedPaths(listing.truncated ? ["Root"] : []);
+      })
       .catch((requestError) => {
         if (requestError.name !== "AbortError") setError(requestError.message);
       });
     return () => controller.abort();
-  }, [path]);
+  }, []);
 
-  const parent = path.split("/").slice(0, -1).join("/");
+  useEffect(() => {
+    const element = treeHost.current;
+    if (!element) return undefined;
+    const update = () => setTreeHeight(Math.max(120, element.clientHeight));
+    update();
+    if (typeof ResizeObserver !== "function") {
+      window.addEventListener("resize", update);
+      return () => window.removeEventListener("resize", update);
+    }
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const loadData = useCallback(async (node) => {
+    if (node.isLeaf || node.children) return;
+    try {
+      const listing = await api("/api/tree", { path: node.key });
+      setTreeData((current) =>
+        replaceTreeChildren(current ?? [], node.key, listing.entries.map(toTreeNode)),
+      );
+      if (listing.truncated) {
+        setTruncatedPaths((current) =>
+          current.includes(node.key) ? current : [...current, node.key],
+        );
+      }
+    } catch (requestError) {
+      setError(requestError.message);
+      throw requestError;
+    }
+  }, []);
+
   return (
-    <div className="sidebar-panel" role="tabpanel">
+    <div className="sidebar-panel source-panel" role="tabpanel">
       <div className="panel-heading">
         <div>
           <span className="eyebrow">LOCAL WORKSPACE</span>
           <h2>Data sources</h2>
         </div>
       </div>
-      <Breadcrumbs path={path} onChange={setPath} />
-      <div className="source-list" aria-busy={!listing && !error}>
-        {path && (
-          <button type="button" className="source-row" onClick={() => setPath(parent)}>
-            <span className="source-icon"><ArrowUp size={16} /></span>
-            <span><strong>Parent directory</strong><small>Move one level up</small></span>
-          </button>
-        )}
+      <div className="tree-root-path" title={root}>{root || "Workspace root"}</div>
+      <div className="source-tree-host" ref={treeHost} aria-busy={!treeData && !error}>
         {error && <div className="panel-error" role="alert">{error}</div>}
-        {!error && !listing && <div className="panel-empty">Reading directory…</div>}
-        {listing?.entries.map((entry) => {
-          const Icon = entry.dir
-            ? Folder
-            : entry.format === "csv"
-              ? FileSpreadsheet
-              : FileArchive;
-          const isActive = entry.path === activePath;
-          const busy = entry.path === openingPath;
-          return (
-            <button
-              type="button"
-              className={`source-row ${isActive ? "is-active" : ""}`}
-              key={entry.path}
-              disabled={!entry.dir && !entry.loadable}
-              onClick={() => (entry.dir ? setPath(entry.path) : onOpen(entry.path))}
-              title={entry.path}
-            >
-              <span className="source-icon"><Icon size={16} /></span>
-              <span>
-                <strong>{entry.name}</strong>
-                <small>
-                  {busy
-                    ? "Opening…"
-                    : entry.dir
-                      ? "Directory"
-                      : entry.loadable
-                        ? entry.format === "csv"
-                          ? "CSV contract v1"
-                          : "SeriesData package"
-                        : "Unsupported file"}
-                </small>
-              </span>
-              {entry.loadable && <span className="source-format">{entry.format}</span>}
-            </button>
-          );
-        })}
-        {listing?.entries.length === 0 && (
-          <div className="panel-empty">This directory is empty.</div>
-        )}
-        {listing?.truncated && (
-          <div className="panel-note">Only the first 5,000 entries are shown.</div>
+        {!error && treeData === null && <div className="panel-empty">Reading directory…</div>}
+        {treeData?.length === 0 && <div className="panel-empty">This directory is empty.</div>}
+        {treeData?.length > 0 && (
+          <Tree
+            className="source-tree"
+            treeData={treeData}
+            height={treeHeight}
+            itemHeight={36}
+            virtual
+            showIcon
+            icon={treeIcon}
+            switcherIcon={switcherIcon}
+            expandAction="doubleClick"
+            loadData={loadData}
+            selectedKeys={activePath ? [activePath] : []}
+            titleRender={(node) => <SourceTreeTitle node={node} openingPath={openingPath} />}
+            onSelect={(_, info) => {
+              if (info.node.loadable) onOpen(String(info.node.key));
+            }}
+          />
         )}
       </div>
-      <div className="contract-note">
-        CSV: <code>series_id</code>, <code>timestamp</code>, and one or more{" "}
-        <code>feature.*</code> columns.
-      </div>
+      {truncatedPaths.length > 0 && (
+        <div className="tree-limit-note" role="status">
+          Entry limit reached in {truncatedPaths.length} director{truncatedPaths.length === 1 ? "y" : "ies"}.
+        </div>
+      )}
     </div>
   );
 }
@@ -308,7 +344,11 @@ export function Sidebar({
 }) {
   return (
     <>
-      <aside className={`sidebar ${open ? "is-open" : ""}`} aria-label="Data navigation">
+      <aside
+        id="data-sidebar"
+        className={`sidebar ${open ? "is-open" : ""}`}
+        aria-label="Data navigation"
+      >
         <SidebarTabs active={activeTab} onChange={onTabChange} />
         {activeTab === "sources" && (
           <SourceBrowser activePath={activePath} openingPath={openingPath} onOpen={onOpenSource} />

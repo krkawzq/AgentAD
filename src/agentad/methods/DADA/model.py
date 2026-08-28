@@ -12,7 +12,7 @@ from torch import Tensor, nn
 from torch.autograd import Function
 from torch.nn import functional as F
 
-from .._utils import validate_series
+from .._utils import evaluation_mode, validate_series
 from .config import DADAConfig
 
 
@@ -24,7 +24,9 @@ class DADAOutput:
 
 
 class _SamePadConv(nn.Module):
-    def __init__(self, input_dim: int, output_dim: int, kernel_size: int, dilation: int = 1) -> None:
+    def __init__(
+        self, input_dim: int, output_dim: int, kernel_size: int, dilation: int = 1
+    ) -> None:
         super().__init__()
         receptive_field = (kernel_size - 1) * dilation + 1
         self.remove_last = receptive_field % 2 == 0
@@ -46,7 +48,11 @@ class _ResidualConvBlock(nn.Module):
         super().__init__()
         self.conv1 = _SamePadConv(input_dim, output_dim, 3)
         self.conv2 = _SamePadConv(output_dim, output_dim, 3)
-        self.projector = nn.Conv1d(input_dim, output_dim, 1) if input_dim != output_dim or final else None
+        self.projector = (
+            nn.Conv1d(input_dim, output_dim, 1)
+            if input_dim != output_dim or final
+            else None
+        )
 
     def forward(self, x: Tensor) -> Tensor:
         residual = x if self.projector is None else self.projector(x)
@@ -56,7 +62,9 @@ class _ResidualConvBlock(nn.Module):
 
 
 class _DilatedEncoder(nn.Module):
-    def __init__(self, hidden_dim: int, output_dim: int, depth: int, dropout: float) -> None:
+    def __init__(
+        self, hidden_dim: int, output_dim: int, depth: int, dropout: float
+    ) -> None:
         super().__init__()
         widths = [hidden_dim] * depth + [output_dim]
         self.feature_extractor = nn.Module()
@@ -78,7 +86,13 @@ class _DilatedEncoder(nn.Module):
 
 
 class _BottleneckExpert(nn.Module):
-    def __init__(self, patch_count: int, representation_dim: int, bottleneck_dim: int, dropout: float) -> None:
+    def __init__(
+        self,
+        patch_count: int,
+        representation_dim: int,
+        bottleneck_dim: int,
+        dropout: float,
+    ) -> None:
         super().__init__()
         self.patch_count = patch_count
         self.representation_dim = representation_dim
@@ -137,10 +151,14 @@ class _AdaptiveBottleneck(nn.Module):
         weights = values.softmax(dim=1)
         gates = torch.zeros_like(logits).scatter(1, indices, weights)
         load = (gates > 0).sum(0).to(gates.dtype)
-        balance = (self._cv_squared(gates.sum(0)) + self._cv_squared(load)) * self.loss_weight
+        balance = (
+            self._cv_squared(gates.sum(0)) + self._cv_squared(load)
+        ) * self.loss_weight
         return gates, balance
 
-    def forward(self, router_input: Tensor, representation: Tensor) -> tuple[Tensor, Tensor]:
+    def forward(
+        self, router_input: Tensor, representation: Tensor
+    ) -> tuple[Tensor, Tensor]:
         gates, balance = self._gates(router_input)
         combined = torch.zeros_like(representation)
         for expert_index, expert in enumerate(self.bottlenecks):
@@ -187,7 +205,9 @@ class _WarmGradientReversal(nn.Module):
         super().__init__()
         self.maximum = maximum
         self.total_steps = total_steps
-        self.register_buffer("steps", torch.zeros((), dtype=torch.long), persistent=False)
+        self.register_buffer(
+            "steps", torch.zeros((), dtype=torch.long), persistent=False
+        )
 
     def forward(self, x: Tensor) -> Tensor:
         progress = min(self.steps.item() / self.total_steps, 1.0)
@@ -238,21 +258,29 @@ class DADA(nn.Module):
         repeated = patches.repeat(copies, 1, 1)
         if mode == "complementary":
             if copies % 2:
-                raise ValueError("complementary masking requires an even number of copies")
-            first = torch.rand(
-                patches.shape[0] * (copies // 2),
-                self.patch_count,
-                device=patches.device,
-                generator=generator,
-            ) < 0.5
+                raise ValueError(
+                    "complementary masking requires an even number of copies"
+                )
+            first = (
+                torch.rand(
+                    patches.shape[0] * (copies // 2),
+                    self.patch_count,
+                    device=patches.device,
+                    generator=generator,
+                )
+                < 0.5
+            )
             mask = torch.cat((first, ~first), dim=0)
         elif mode == "random":
-            mask = torch.rand(
-                patches.shape[0] * copies,
-                self.patch_count,
-                device=patches.device,
-                generator=generator,
-            ) < 0.5
+            mask = (
+                torch.rand(
+                    patches.shape[0] * copies,
+                    self.patch_count,
+                    device=patches.device,
+                    generator=generator,
+                )
+                < 0.5
+            )
         else:
             raise ValueError(f"unknown mask mode: {mode!r}")
         return repeated.masked_fill(mask.unsqueeze(-1), 0)
@@ -270,16 +298,31 @@ class DADA(nn.Module):
         padded_length = self.patch_count * self.config.patch_length
         if padded_length != time:
             independent = F.pad(independent, (0, padded_length - time))
-        patches = independent.unfold(-1, self.config.patch_length, self.config.patch_length)
+        patches = independent.unfold(
+            -1, self.config.patch_length, self.config.patch_length
+        )
         patches = self.input_embed(patches)
         patches = self._masked_patches(patches, copies, mask_mode, generator)
         representation = self.encoder(patches).flatten(1)
-        representation, balance = self.adaptive_bottleneck(representation, representation)
-        return representation.reshape(-1, self.patch_count, self.config.representation_dim), balance
+        representation, balance = self.adaptive_bottleneck(
+            representation, representation
+        )
+        return representation.reshape(
+            -1, self.patch_count, self.config.representation_dim
+        ), balance
 
-    def _decode(self, representation: Tensor, decoder: nn.Module, batch: int, features: int, copies: int) -> Tensor:
+    def _decode(
+        self,
+        representation: Tensor,
+        decoder: nn.Module,
+        batch: int,
+        features: int,
+        copies: int,
+    ) -> Tensor:
         reconstructed = decoder(representation)[..., : self.config.sequence_length]
-        reconstructed = reconstructed.reshape(copies, batch, features, self.config.sequence_length)
+        reconstructed = reconstructed.reshape(
+            copies, batch, features, self.config.sequence_length
+        )
         return reconstructed.permute(0, 1, 3, 2)
 
     def forward(
@@ -314,7 +357,9 @@ class DADA(nn.Module):
             mask_mode=mode,
             generator=generator,
         )
-        reconstruction = self._decode(representation, self.decoder, x.shape[0], x.shape[2], copies)
+        reconstruction = self._decode(
+            representation, self.decoder, x.shape[0], x.shape[2], copies
+        )
         adversarial_reconstruction = None
         if adversarial:
             reversed_representation = self.grl(representation)
@@ -328,9 +373,12 @@ class DADA(nn.Module):
         if normalize:
             reconstruction = reconstruction * scale.unsqueeze(0) + mean.unsqueeze(0)
             if adversarial_reconstruction is not None:
-                adversarial_reconstruction = adversarial_reconstruction * scale.unsqueeze(0) + mean.unsqueeze(0)
+                adversarial_reconstruction = (
+                    adversarial_reconstruction * scale.unsqueeze(0) + mean.unsqueeze(0)
+                )
         return DADAOutput(reconstruction, balance, adversarial_reconstruction)
 
+    @torch.inference_mode()
     def score(
         self,
         x: Tensor,
@@ -344,14 +392,17 @@ class DADA(nn.Module):
             raise ValueError("variance_weight must be in [0, 1]")
         if self.config.copies < 2:
             raise ValueError("DADA variance scoring requires at least two copies")
-        output = self(x, normalize=normalize, generator=generator)
-        uncertainty = output.reconstructions.var(dim=0, unbiased=True).mean(dim=2)
-        if variance_weight == 1:
-            return uncertainty
-        reconstruction = (output.reconstructions.mean(0) - x).square().mean(dim=2)
-        return variance_weight * uncertainty + (1 - variance_weight) * reconstruction
+        with evaluation_mode(self):
+            output = self(x, normalize=normalize, generator=generator)
+            uncertainty = output.reconstructions.var(dim=0, unbiased=True).mean(dim=2)
+            if variance_weight == 1:
+                return uncertainty
+            reconstruction = (output.reconstructions.mean(0) - x).square().mean(dim=2)
+            return variance_weight * uncertainty + (1 - variance_weight) * reconstruction
 
-    def load_reference_checkpoint(self, path: str | Path, *, strict: bool = True) -> None:
+    def load_reference_checkpoint(
+        self, path: str | Path, *, strict: bool = True
+    ) -> None:
         """Load the published Hugging Face checkpoint without depending on transformers."""
         state = torch.load(Path(path), map_location="cpu", weights_only=True)
         if isinstance(state, dict) and "state_dict" in state:

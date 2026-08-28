@@ -83,6 +83,9 @@ MetricName: TypeAlias = Literal[
     "PA-Recall",
     "PA-F1",
     "PA-AUC-PR",
+    "PA-Exact-Precision",
+    "PA-Exact-Recall",
+    "PA-Exact-F1",
     "K-Delay-PA-F1",
     "Event-PA-F1",
     "Event-based-Precision",
@@ -160,6 +163,9 @@ AVAILABLE_METRICS: tuple[MetricName, ...] = (
     "PA-Recall",
     "PA-F1",
     "PA-AUC-PR",
+    "PA-Exact-Precision",
+    "PA-Exact-Recall",
+    "PA-Exact-F1",
     "K-Delay-PA-F1",
     "Event-PA-F1",
     "Event-based-Precision",
@@ -252,6 +258,11 @@ _STANDARD_COUNT_METRICS = (
     "Standard-TN",
 )
 _PA_METRICS = ("PA-Accuracy", "PA-Precision", "PA-Recall", "PA-F1")
+_PA_EXACT_METRICS = (
+    "PA-Exact-Precision",
+    "PA-Exact-Recall",
+    "PA-Exact-F1",
+)
 _EVENT_METRICS = (
     "Event-based-Precision",
     "Event-based-Recall",
@@ -484,6 +495,14 @@ def _evaluate_prepared(
         computed["PA-AUC-PR"] = _point_adjusted_average_precision_prepared(
             labels, scores
         )
+
+    if any(name in _PA_EXACT_METRICS for name in selected):
+        exact_pa = _k_delay_prepared(
+            labels, scores, predictions, delay=labels.size
+        )
+        computed["PA-Exact-Precision"] = exact_pa.precision
+        computed["PA-Exact-Recall"] = exact_pa.recall
+        computed["PA-Exact-F1"] = exact_pa.f1
 
     if any(name in _EVENT_METRICS for name in selected):
         event_values = (

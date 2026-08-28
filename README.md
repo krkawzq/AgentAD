@@ -75,13 +75,17 @@ report = evaluate_collection(
     test,
     train,
     scores={"series-id": full_series_scores},
+    predictions={"series-id": full_series_predictions},  # optional
 )
 macro_average = report.summary()
+micro_point_metrics = report.micro_summary()
 ```
 
 `evaluate()` follows the `(y_true, y_score)` convention. Without `y_pred`, each
-threshold-dependent F1 metric uses its own TSB-AD-compatible oracle threshold;
-with `y_pred`, every metric evaluates the same fixed decision. See
+threshold-dependent family uses its documented oracle threshold; with `y_pred`,
+every threshold-dependent metric evaluates the same fixed decision. The full
+catalog includes point, range-AUC, VUS, PA, event, affiliation, interval,
+delay-aware, PATE and first-hit protocols. See
 `src/agentad/evaluation/README.md` for the metric survey and module boundaries.
 
 ## Build

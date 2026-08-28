@@ -115,6 +115,19 @@ class EvaluationResult:
         selected = [name for name in self.metric_columns if name in values]
         return pd.Series({name: values[name] for name in selected}, dtype=np.float64)
 
+    def anomalous_summary(
+        self, stat: Literal["mean", "median"] = "mean"
+    ) -> pd.Series:
+        """Macro-aggregate only series containing labelled anomaly points."""
+        if stat not in ("mean", "median"):
+            raise ValueError(f"stat must be 'mean' or 'median', got {stat!r}")
+        if "n_anomalies" not in self.per_series:
+            raise ValueError("per-series anomaly counts are unavailable")
+        selected = self.per_series[self.per_series["n_anomalies"] > 0]
+        if selected.empty:
+            return pd.Series({name: math.nan for name in self.metric_columns})
+        return selected[list(self.metric_columns)].agg(stat, axis=0)
+
     @property
     def failures(self) -> pd.DataFrame:
         """Rows that failed scoring or validation."""
@@ -444,6 +457,15 @@ def evaluate_collection(
                 need_data=score_fn is not None,
                 need_timestamps=score_items is not None,
                 need_period=need_period,
+            )
+            row["n_anomalies"] = int(series.labels.sum())
+            row["n_events"] = int(
+                np.count_nonzero(
+                    (series.labels != 0)
+                    & np.concatenate(
+                        (np.array([True]), series.labels[:-1] == 0)
+                    )
+                )
             )
             started = time.perf_counter()
             score = _resolve_score(score_fn, scores, series)

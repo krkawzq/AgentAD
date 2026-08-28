@@ -255,6 +255,14 @@ class WebUI:
                 )
                 self.end_headers()
 
+            def _write_body(self, body: bytes) -> None:
+                if self.command == "HEAD":
+                    return
+                try:
+                    self.wfile.write(body)
+                except (BrokenPipeError, ConnectionResetError):
+                    self.close_connection = True
+
             def _send_json(
                 self, payload: dict[str, Any], status: HTTPStatus = HTTPStatus.OK
             ) -> None:
@@ -265,8 +273,7 @@ class WebUI:
                     separators=(",", ":"),
                 ).encode("utf-8")
                 self._headers(status, "application/json; charset=utf-8", len(body))
-                if self.command != "HEAD":
-                    self.wfile.write(body)
+                self._write_body(body)
 
             def _send_asset(self, path: str) -> None:
                 asset = app._assets.get(path)
@@ -275,8 +282,7 @@ class WebUI:
                     self._headers(
                         HTTPStatus.NOT_FOUND, "text/plain; charset=utf-8", len(body)
                     )
-                    if self.command != "HEAD":
-                        self.wfile.write(body)
+                    self._write_body(body)
                     return
                 body, content_type, etag = asset
                 cache_control = (
@@ -300,8 +306,7 @@ class WebUI:
                     cache_control=cache_control,
                     etag=etag,
                 )
-                if self.command != "HEAD":
-                    self.wfile.write(body)
+                self._write_body(body)
 
             def do_GET(self) -> None:  # noqa: N802
                 if len(self.path.encode("utf-8", errors="surrogatepass")) > (
@@ -370,7 +375,7 @@ class WebUI:
                     len(body),
                     allow="GET, HEAD",
                 )
-                self.wfile.write(body)
+                self._write_body(body)
 
             do_DELETE = _method_not_allowed
             do_OPTIONS = _method_not_allowed

@@ -2,6 +2,14 @@
 
 export const MIN_SPAN = 4;
 
+export function clampPanelWidth(width, minimum = 240, maximum = 520) {
+  const min = Math.max(0, Number(minimum) || 0);
+  const max = Math.max(min, Number(maximum) || min);
+  const value = Number(width);
+  if (!Number.isFinite(value)) return min;
+  return Math.round(Math.max(min, Math.min(value, max)));
+}
+
 export function clampWindow(start, stop, total) {
   const size = Math.max(0, Math.floor(Number(total) || 0));
   if (size === 0) return [0, 0];

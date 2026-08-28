@@ -13,7 +13,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 
-import { zoomWindow } from "../../static/core.js";
+import { clampPanelWidth, zoomWindow } from "../../static/core.js";
 import { api, ApiError } from "./api.js";
 import { CanvasEditor, TimelineNavigator } from "./CanvasEditor.jsx";
 import { Inspector } from "./Inspector.jsx";
@@ -26,6 +26,10 @@ const DEFAULT_TRANSFORM = Object.freeze({
   flipX: false,
   flipY: false,
 });
+const SIDEBAR_DEFAULT_WIDTH = 300;
+const SIDEBAR_MIN_WIDTH = 240;
+const SIDEBAR_MAX_WIDTH = 520;
+const SIDEBAR_WIDTH_KEY = "agentad-visualizer:sidebar-width";
 
 function Header({ overview, activePath, onMenu, onInspector, onHelp }) {
   return (
@@ -34,7 +38,6 @@ function Header({ overview, activePath, onMenu, onInspector, onHelp }) {
         <button type="button" className="mobile-icon-button" aria-label="Open navigation" onClick={onMenu}>
           <Menu size={18} />
         </button>
-        <div className="brand-mark" aria-hidden="true"><span>A</span><span>D</span></div>
         <div>
           <h1>{overview?.title ?? "AgentAD Visualizer"}</h1>
           <p>Scientific time-series workspace</p>
@@ -63,6 +66,72 @@ function Header({ overview, activePath, onMenu, onInspector, onHelp }) {
         </button>
       </div>
     </header>
+  );
+}
+
+function SidebarResizer({ width, workspaceRef, onResize }) {
+  const drag = useRef(null);
+
+  const preview = (nextWidth, element) => {
+    const next = clampPanelWidth(nextWidth, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH);
+    if (drag.current) drag.current.lastWidth = next;
+    workspaceRef.current?.style.setProperty("--sidebar-width", `${next}px`);
+    element.setAttribute("aria-valuenow", String(next));
+  };
+
+  const finish = (event) => {
+    if (!drag.current) return;
+    const next = drag.current.lastWidth;
+    drag.current = null;
+    document.body.classList.remove("is-resizing-sidebar");
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    onResize(next);
+  };
+
+  return (
+    <div
+      className="sidebar-resizer"
+      role="separator"
+      tabIndex="0"
+      aria-label="Resize data sidebar"
+      aria-controls="data-sidebar"
+      aria-orientation="vertical"
+      aria-valuemin={SIDEBAR_MIN_WIDTH}
+      aria-valuemax={SIDEBAR_MAX_WIDTH}
+      aria-valuenow={width}
+      title="Drag to resize; double-click to reset"
+      onDoubleClick={(event) => {
+        preview(SIDEBAR_DEFAULT_WIDTH, event.currentTarget);
+        onResize(SIDEBAR_DEFAULT_WIDTH);
+      }}
+      onKeyDown={(event) => {
+        let next = null;
+        const step = event.shiftKey ? 48 : 16;
+        if (event.key === "ArrowLeft") next = width - step;
+        else if (event.key === "ArrowRight") next = width + step;
+        else if (event.key === "Home") next = SIDEBAR_DEFAULT_WIDTH;
+        if (next === null) return;
+        event.preventDefault();
+        onResize(clampPanelWidth(next, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH));
+      }}
+      onPointerCancel={finish}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        drag.current = { lastWidth: width };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        document.body.classList.add("is-resizing-sidebar");
+      }}
+      onPointerMove={(event) => {
+        if (!drag.current || !workspaceRef.current) return;
+        const bounds = workspaceRef.current.getBoundingClientRect();
+        preview(event.clientX - bounds.left, event.currentTarget);
+      }}
+      onPointerUp={finish}
+    >
+      <span aria-hidden="true" />
+    </div>
   );
 }
 
@@ -255,8 +324,30 @@ export function App() {
   const [layout, setLayout] = useState("stacked");
   const [transform, setTransform] = useState({ ...DEFAULT_TRANSFORM });
   const [notice, setNotice] = useState("");
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    try {
+      const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_KEY));
+      if (!Number.isFinite(stored) || stored <= 0) return SIDEBAR_DEFAULT_WIDTH;
+      return clampPanelWidth(
+        stored,
+        SIDEBAR_MIN_WIDTH,
+        SIDEBAR_MAX_WIDTH,
+      );
+    } catch {
+      return SIDEBAR_DEFAULT_WIDTH;
+    }
+  });
   const noticeTimer = useRef(null);
   const itemsRequest = useRef(null);
+  const workspaceRef = useRef(null);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+    } catch {
+      // Storage can be unavailable in privacy-restricted browser contexts.
+    }
+  }, [sidebarWidth]);
 
   const notify = useCallback((message) => {
     setNotice(message);
@@ -471,7 +562,11 @@ export function App() {
           notify("Keyboard shortcuts are listed in the inspector.");
         }}
       />
-      <div className="workspace">
+      <div
+        className="workspace"
+        ref={workspaceRef}
+        style={{ "--sidebar-width": `${sidebarWidth}px` }}
+      >
         <Sidebar
           activeTab={activeTab}
           open={sidebarOpen}
@@ -494,6 +589,11 @@ export function App() {
           onSelectDefaultFeatures={() => {
             setSelectedFeatures((overview?.features ?? []).slice(0, 6).map((feature) => feature.index));
           }}
+        />
+        <SidebarResizer
+          width={sidebarWidth}
+          workspaceRef={workspaceRef}
+          onResize={setSidebarWidth}
         />
         <main className="editor" id="editor-main" tabIndex="-1">
           <Toolbar

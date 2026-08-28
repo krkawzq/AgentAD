@@ -28,9 +28,6 @@ Cargo.lock
 .cursor/
 .grok/
 
-# Rust application lockfile remains local in this Python project
-Cargo.lock
-
 # Local files
 ssh
 forks/

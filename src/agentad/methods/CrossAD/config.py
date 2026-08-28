@@ -50,7 +50,10 @@ class CrossADConfig:
                 raise ValueError(f"{name} must be positive")
         if not self.scale_kernels or any(kernel <= 1 for kernel in self.scale_kernels):
             raise ValueError("scale_kernels must contain integers greater than one")
-        if any(left <= right for left, right in zip(self.scale_kernels, self.scale_kernels[1:])):
+        if any(
+            left <= right
+            for left, right in zip(self.scale_kernels, self.scale_kernels[1:])
+        ):
             raise ValueError("scale_kernels must be ordered from coarse to fine")
         if self.model_dim % self.heads:
             raise ValueError("model_dim must be divisible by heads")
