@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>AgentAD Visualize</title>
+  <link rel="stylesheet" href="/app.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳至时间序列图表</a>
+  <header class="topbar">
+    <button id="menu-btn" class="icon-btn" aria-label="打开侧边栏" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <h1 id="app-title" class="app-title">AgentAD Visualize</h1>
+    <div id="stats" class="stats" aria-label="集合统计"></div>
+  </header>
+
+  <div id="loading-bar" class="loading-bar" role="progressbar" aria-label="正在加载时间序列" hidden>
+    <div class="loading-bar-inner"></div>
+  </div>
+
+  <div class="layout">
+    <aside id="sidebar" class="sidebar" aria-label="文件与系列">
+      <div class="sidebar-tabs" role="tablist" aria-label="侧边栏面板">
+        <button id="tab-files" class="sidebar-tab" type="button" role="tab" aria-controls="panel-files" aria-selected="true">文件</button>
+        <button id="tab-series" class="sidebar-tab" type="button" role="tab" aria-controls="panel-series" aria-selected="false" tabindex="-1">系列</button>
+      </div>
+      <div id="panel-files" class="side-panel" role="tabpanel" aria-labelledby="tab-files">
+        <div id="tree-root" class="tree-root" title=""></div>
+        <div id="tree" class="tree" role="tree" aria-label="目录树"></div>
+      </div>
+      <div id="panel-series" class="side-panel" role="tabpanel" aria-labelledby="tab-series" hidden>
+        <div class="search-row">
+          <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="search" type="search" placeholder="搜索系列 ID…" aria-label="搜索系列 ID" autocomplete="off" spellcheck="false">
+        </div>
+        <div id="series-list" class="series-list" role="listbox" aria-label="可用系列" aria-busy="false"></div>
+      </div>
+      <div id="sidebar-foot" class="sidebar-foot" hidden>
+        <button id="more-btn" class="btn" hidden>加载更多</button>
+        <div id="list-count" class="muted" aria-live="polite"></div>
+        <details id="manifest-box" class="manifest" hidden>
+          <summary>数据集信息</summary>
+          <div id="manifest-body" class="manifest-body"></div>
+        </details>
+      </div>
+    </aside>
+    <button id="sidebar-resizer" class="sidebar-resizer" type="button" role="separator" aria-orientation="vertical" aria-valuemin="200" aria-valuemax="600" aria-valuenow="280" aria-label="调整侧边栏宽度" title="拖动调整宽度，双击恢复默认"></button>
+    <div id="backdrop" class="backdrop" hidden></div>
+
+    <main id="main-content" class="main" tabindex="-1">
+      <div class="toolbar">
+        <label class="field">归一化
+          <select id="norm-select"></select>
+        </label>
+        <label class="field">范围
+          <select id="scope-select">
+            <option value="feature">各特征独立</option>
+            <option value="global">全特征统一</option>
+          </select>
+        </label>
+        <label class="field">标注
+          <select id="label-select"></select>
+        </label>
+        <span class="spacer"></span>
+        <button id="zoom-out" class="icon-btn" aria-label="缩小" title="缩小（-）">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M8 11h6m3.5 6.5L21 21"/></svg>
+        </button>
+        <button id="zoom-in" class="icon-btn" aria-label="放大" title="放大（+）">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M8 11h6M11 8v6m6.5 6.5L21 21"/></svg>
+        </button>
+        <button id="zoom-reset" class="icon-btn" aria-label="重置视图" title="重置视图（0）">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10a8 8 0 1 1 2 6"/><path d="M4 4v6h6"/></svg>
+        </button>
+      </div>
+
+      <div id="feature-bar" class="feature-bar" role="group" aria-label="特征选择"></div>
+
+      <div class="chart-wrap" id="chart-wrap">
+        <canvas id="chart" tabindex="0" aria-describedby="chart-summary" aria-label="时间序列图表，使用左右方向键平移，加号减号缩放，0 重置">
+          时间序列图表需要支持 Canvas 的浏览器。
+        </canvas>
+        <div id="tooltip" class="tooltip" hidden></div>
+        <div id="chart-msg" class="chart-msg" role="status" aria-live="polite" hidden></div>
+        <p id="chart-summary" class="sr-only" aria-live="polite">尚未加载时间序列</p>
+      </div>
+
+      <footer class="statusbar">
+        <span id="window-info" class="muted"></span>
+        <span id="hover-info" class="muted"></span>
+        <span id="notice" class="notice" role="status"></span>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

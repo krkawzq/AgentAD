@@ -1,9 +1,4 @@
-"""ACF-based period estimation used as the VUS window size.
-
-Adapted from TheDatumOrg/TSB-AD (Apache License 2.0).
-
-SPDX-License-Identifier: Apache-2.0
-"""
+"""ACF-based period estimation used as the VUS window size."""
 
 from __future__ import annotations
 

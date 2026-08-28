@@ -4,10 +4,6 @@ This implements the TSB-AD VUS definition while replacing its nested
 ``window x threshold x point`` Python loops with a compiled rank/prefix-sum
 kernel. The algorithm remains serial and uses O(n + windows x thresholds)
 working memory.
-
-Adapted from TheDatumOrg/TSB-AD (Apache License 2.0).
-
-SPDX-License-Identifier: Apache-2.0
 """
 
 from __future__ import annotations

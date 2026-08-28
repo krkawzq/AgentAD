@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from copy import deepcopy
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from ..series import SeriesData, SeriesItem
-from ._normalize import NORMALIZATIONS, normalize
+from ._normalize import NORMALIZATIONS, _normalize_inplace
 
 DEFAULT_MAX_POINTS = 4_000
 HARD_MAX_POINTS = 50_000
@@ -22,27 +23,46 @@ def _display(value: Any) -> str:
     return str(value)
 
 
+def _is_missing_scalar(value: Any) -> bool:
+    """Return whether one metadata value is missing without expanding arrays."""
+    try:
+        missing = pd.isna(value)
+    except (TypeError, ValueError):
+        return False
+    return bool(missing) if isinstance(missing, (bool, np.bool_)) else False
+
+
+def _display_names(values: Sequence[Any]) -> list[str]:
+    names: list[str] = []
+    seen: dict[str, int] = {}
+    for position, value in enumerate(values):
+        base = _display(value)
+        duplicate = seen.get(base, 0)
+        seen[base] = duplicate + 1
+        names.append(base if duplicate == 0 else f"{base} [{position}]")
+    return names
+
+
 def _feature_records(features: pd.DataFrame) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
-    seen: dict[str, int] = {}
-    columns = [_display(column) for column in features.columns]
-    for position, (index, row) in enumerate(features.iterrows()):
-        base_name = _display(index)
-        duplicate = seen.get(base_name, 0)
-        seen[base_name] = duplicate + 1
-        name = base_name if duplicate == 0 else f"{base_name} [{position}]"
+    names = _display_names(features.index.tolist())
+    columns = _display_names(features.columns.tolist())
+    for position, (_, row) in enumerate(features.iterrows()):
         metadata = {
             column: _display(value)
             for column, value in zip(columns, row.tolist())
-            if not pd.isna(value)
+            if not _is_missing_scalar(value)
         }
-        records.append({"index": position, "name": name, "metadata": metadata})
+        records.append(
+            {"index": position, "name": names[position], "metadata": metadata}
+        )
     return records
 
 
 def _binary_label_records(labels: pd.DataFrame) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
-    for position, column in enumerate(labels.columns):
+    names = _display_names(labels.columns.tolist())
+    for position in range(labels.shape[1]):
         values = labels.iloc[:, position]
         non_missing = values[~values.isna()]
         try:
@@ -50,12 +70,12 @@ def _binary_label_records(labels: pd.DataFrame) -> list[dict[str, Any]]:
         except TypeError:
             continue
         if unique.issubset({False, True, 0, 1, 0.0, 1.0}):
-            records.append({"index": position, "name": _display(column)})
+            records.append({"index": position, "name": names[position]})
     return records
 
 
 def _downsample_indices(values: np.ndarray, max_points: int) -> np.ndarray:
-    """Select a bounded set of ordered points while retaining local extrema."""
+    """Select bounded ordered points while retaining envelope extrema."""
     rows = values.shape[0]
     if rows <= max_points:
         return np.arange(rows, dtype=np.int64)
@@ -63,22 +83,34 @@ def _downsample_indices(values: np.ndarray, max_points: int) -> np.ndarray:
         return np.array([0, rows - 1], dtype=np.int64)
 
     interior_budget = max_points - 2
-    buckets = max(1, interior_budget // 2)
+    buckets = max(1, (interior_budget + 1) // 2)
     boundaries = np.linspace(1, rows - 1, buckets + 1, dtype=np.int64)
     selected: list[int] = [0]
-    for lower, upper in zip(boundaries[:-1], boundaries[1:]):
+    remaining = interior_budget
+    for bucket, (lower, upper) in enumerate(zip(boundaries[:-1], boundaries[1:])):
         if upper <= lower:
             continue
+        remaining_buckets = buckets - bucket - 1
+        slots = min(2, remaining - remaining_buckets)
         chunk = values[lower:upper]
         finite = np.isfinite(chunk)
         if not finite.any():
             selected.append(int(lower))
+            remaining -= 1
             continue
         row_min = np.min(chunk, axis=1, where=finite, initial=np.inf)
         row_max = np.max(chunk, axis=1, where=finite, initial=-np.inf)
         low = int(lower + np.argmin(row_min))
         high = int(lower + np.argmax(row_max))
-        selected.extend((low, high) if low <= high else (high, low))
+        if slots == 1:
+            low_score = abs(float(row_min[low - lower]))
+            high_score = abs(float(row_max[high - lower]))
+            selected.append(low if low_score >= high_score else high)
+            remaining -= 1
+        else:
+            candidates = (low, high) if low <= high else (high, low)
+            selected.extend(candidates)
+            remaining -= len(set(candidates))
     selected.append(rows - 1)
     return np.asarray(sorted(set(selected)), dtype=np.int64)
 
@@ -125,7 +157,7 @@ def _label_runs(
     label_index: int | None,
     start: int,
     stop: int,
-) -> list[dict[str, str]]:
+) -> list[dict[str, str | int]]:
     if label_index is None:
         return []
     if label_index < 0 or label_index >= item.labels.shape[1]:
@@ -141,23 +173,20 @@ def _label_runs(
     if not unique.issubset({False, True, 0, 1, 0.0, 1.0}):
         raise ValueError("selected label column is not binary")
 
-    mask = values.fillna(False).astype(bool).to_numpy()
+    mask = values.astype("boolean").fillna(False).to_numpy(dtype=bool)
     timestamps = item.timestamps[start:stop]
-    runs: list[dict[str, str]] = []
-    run_start: int | None = None
-    for position, active in enumerate(mask):
-        if active and run_start is None:
-            run_start = position
-        if run_start is not None and (not active or position == len(mask) - 1):
-            run_stop = position if active and position == len(mask) - 1 else position - 1
-            runs.append(
-                {
-                    "start": str(int(timestamps[run_start])),
-                    "stop": str(int(timestamps[run_stop])),
-                }
-            )
-            run_start = None
-    return runs
+    edges = np.diff(np.pad(mask.astype(np.int8), (1, 1)))
+    run_starts = np.flatnonzero(edges == 1)
+    run_stops = np.flatnonzero(edges == -1) - 1
+    return [
+        {
+            "start": str(int(timestamps[run_start])),
+            "stop": str(int(timestamps[run_stop])),
+            "start_index": int(start + run_start),
+            "stop_index": int(start + run_stop),
+        }
+        for run_start, run_stop in zip(run_starts, run_stops)
+    ]
 
 
 class SeriesDataView:
@@ -169,6 +198,10 @@ class SeriesDataView:
         self.sdata = sdata
         self.features = _feature_records(sdata.features)
         self.binary_labels = _binary_label_records(sdata.labels)
+        self._binary_label_indices = frozenset(
+            record["index"] for record in self.binary_labels
+        )
+        self._folded_ids = tuple(series_id.casefold() for series_id in sdata.ids)
 
     def overview(self, title: str) -> dict[str, Any]:
         lengths = np.diff(self.sdata.offsets)
@@ -180,9 +213,12 @@ class SeriesDataView:
             "label_count": self.sdata.labels.shape[1],
             "min_length": int(lengths.min()) if len(lengths) else 0,
             "max_length": int(lengths.max()) if len(lengths) else 0,
-            "features": self.features,
-            "binary_labels": self.binary_labels,
-            "normalizations": list(NORMALIZATIONS),
+            "features": [
+                {**record, "metadata": dict(record["metadata"])}
+                for record in self.features
+            ],
+            "binary_labels": [dict(record) for record in self.binary_labels],
+            "normalizations": [dict(record) for record in NORMALIZATIONS],
             "manifest": dict(self.sdata.manifest),
             "limits": {
                 "default_max_points": DEFAULT_MAX_POINTS,
@@ -191,32 +227,37 @@ class SeriesDataView:
             },
         }
 
-    def items(self, query: str = "", offset: int = 0, limit: int = 50) -> dict[str, Any]:
+    def items(
+        self, query: str = "", offset: int = 0, limit: int = 50
+    ) -> dict[str, Any]:
+        if not isinstance(query, str):
+            raise TypeError("query must be a string")
         if offset < 0:
             raise ValueError("offset must be non-negative")
         if limit < 1 or limit > 200:
             raise ValueError("limit must be between 1 and 200")
         needle = query.casefold().strip()
-        matched = [
-            index
-            for index, series_id in enumerate(self.sdata.ids)
-            if not needle or needle in series_id.casefold()
-        ]
-        page = matched[offset : offset + limit]
+        page: list[dict[str, Any]] = []
+        total = 0
+        for index, folded_id in enumerate(self._folded_ids):
+            if needle and needle not in folded_id:
+                continue
+            if offset <= total < offset + limit:
+                page.append(
+                    {
+                        "index": index,
+                        "id": self.sdata.ids[index],
+                        "points": int(
+                            self.sdata.offsets[index + 1] - self.sdata.offsets[index]
+                        ),
+                    }
+                )
+            total += 1
         return {
-            "items": [
-                {
-                    "index": index,
-                    "id": self.sdata.ids[index],
-                    "points": int(
-                        self.sdata.offsets[index + 1] - self.sdata.offsets[index]
-                    ),
-                }
-                for index in page
-            ],
+            "items": page,
             "offset": offset,
-            "total": len(matched),
-            "has_more": offset + len(page) < len(matched),
+            "total": total,
+            "has_more": offset + len(page) < total,
         }
 
     def data(
@@ -241,15 +282,19 @@ class SeriesDataView:
                 f"invalid row window [{start}, {stop}) for {len(item)} points"
             )
         if max_points < 2 or max_points > HARD_MAX_POINTS:
-            raise ValueError(
-                f"max_points must be between 2 and {HARD_MAX_POINTS}"
-            )
+            raise ValueError(f"max_points must be between 2 and {HARD_MAX_POINTS}")
+
+        if label_index is not None:
+            if label_index < 0 or label_index >= item.labels.shape[1]:
+                raise ValueError(f"label index out of range: {label_index}")
+            if label_index not in self._binary_label_indices:
+                raise ValueError("selected label column is not binary")
 
         if feature_indices is None:
             feature_indices = tuple(range(min(item.n_features, 8)))
         else:
             feature_indices = tuple(feature_indices)
-        if not feature_indices:
+        if not feature_indices and item.n_features:
             raise ValueError("at least one feature must be selected")
         if len(feature_indices) > MAX_SELECTED_FEATURES:
             raise ValueError(
@@ -260,8 +305,16 @@ class SeriesDataView:
         if any(index < 0 or index >= item.n_features for index in feature_indices):
             raise ValueError("feature index out of range")
 
-        window = item.data[start:stop, feature_indices]
-        normalized = normalize(window, normalization, scope=scope)
+        source = item.data[start:stop][:, feature_indices]
+        if np.iscomplexobj(source):
+            raise TypeError("complex series values cannot be visualized")
+        normalized = np.array(
+            source,
+            dtype=np.float64,
+            copy=True,
+            order="C",
+        )
+        _normalize_inplace(normalized, normalization, scope)
         sampled = _downsample_indices(normalized, max_points)
         absolute = sampled + start
         selected = normalized[sampled]
@@ -272,21 +325,22 @@ class SeriesDataView:
                 "index": series_index,
                 "id": item.id,
                 "points": len(item),
-                "meta": item.meta,
+                "meta": deepcopy(item.meta),
             },
             "window": {"start": start, "stop": stop, "points": stop - start},
             "normalization": normalization,
             "scope": scope,
             "sampled_points": len(sampled),
+            "indices": [int(value) for value in absolute],
             "timestamps": [str(int(value)) for value in timestamp_values],
             "timestamp_labels": _timestamp_labels(item, absolute),
             "features": [
                 {
                     **self.features[index],
+                    "metadata": dict(self.features[index]["metadata"]),
                     "values": _finite_json_column(selected[:, column]),
                 }
                 for column, index in enumerate(feature_indices)
             ],
             "label_runs": _label_runs(item, label_index, start, stop),
         }
-

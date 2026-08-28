@@ -1,9 +1,4 @@
-"""Single-series TSB-AD-compatible metric-suite orchestration.
-
-Adapted from TheDatumOrg/TSB-AD (Apache License 2.0).
-
-SPDX-License-Identifier: Apache-2.0
-"""
+"""Single-series TSB-AD-compatible metric-suite orchestration."""
 
 from __future__ import annotations
 
@@ -75,7 +70,6 @@ __all__ = [
     "evaluate",
     "generate_curve",
     "get_metrics",
-    "warmup",
 ]
 
 
@@ -263,29 +257,6 @@ def _evaluate_prepared(
                 else _best_affiliation_f1_prepared(labels, scores, thresholds)
             )
     return values
-
-
-def warmup() -> None:
-    """Compile and load all Numba metric kernels before timed batch evaluation."""
-    labels = np.array([0, 0, 1, 1, 0, 1, 0, 0], dtype=np.uint8)
-    scores = np.array([0.1, 0.2, 0.8, 0.7, 0.3, 0.9, 0.4, 0.0], dtype=np.float64)
-    thresholds = threshold_grid(scores, 3)
-    best_oracle_f1s_kernel(labels, scores, thresholds, 0.2)
-    best_point_adjusted_f1_kernel(labels, scores, thresholds)
-    best_event_f1_kernel(labels, scores, thresholds)
-    best_range_f1_kernel(labels, scores, thresholds, 0.2)
-    _best_affiliation_f1_prepared(labels, scores, thresholds)
-    prediction = np.asarray(scores > 0.5, dtype=np.uint8)
-    point_adjust_kernel(labels, prediction)
-    event_prf_kernel(labels, prediction)
-    range_prf_kernel(labels, prediction, 0.2)
-    _volume_under_surface_prepared(
-        labels,
-        scores,
-        window_size=2,
-        threshold_count=3,
-        return_surface=False,
-    )
 
 
 def get_metrics(

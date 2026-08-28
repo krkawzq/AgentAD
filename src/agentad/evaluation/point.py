@@ -1,10 +1,4 @@
-"""Point-wise anomaly-detection metrics.
-
-Point adjustment and ``Standard-F1`` semantics are adapted from
-TheDatumOrg/TSB-AD (Apache License 2.0).
-
-SPDX-License-Identifier: Apache-2.0
-"""
+"""Point-wise anomaly-detection metrics."""
 
 from __future__ import annotations
 

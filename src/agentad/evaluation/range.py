@@ -1,9 +1,4 @@
-"""Point-adjusted, event, range and affiliation metrics.
-
-Adapted from TheDatumOrg/TSB-AD (Apache License 2.0).
-
-SPDX-License-Identifier: Apache-2.0
-"""
+"""Point-adjusted, event, range and affiliation metrics."""
 
 from __future__ import annotations
 
@@ -11,6 +6,8 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 from ._kernels import (
+    affiliation_prf_kernel,
+    best_affiliation_f1_kernel,
     best_event_f1_kernel,
     best_point_adjusted_f1_kernel,
     best_range_f1_kernel,
@@ -20,7 +17,6 @@ from ._kernels import (
 )
 from ._types import PRF1
 from ._validation import binary_array, threshold_grid, validate_pair
-from .affiliation._kernels import affiliation_prf_kernel, best_affiliation_f1_kernel
 from .point import _point_metrics_prepared
 
 __all__ = [

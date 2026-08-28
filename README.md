@@ -66,9 +66,8 @@ The ordinary time-series metric suite is available without importing it into the
 lightweight top-level package:
 
 ```python
-from agentad.evaluation import evaluate, evaluate_collection, warmup
+from agentad.evaluation import evaluate, evaluate_collection
 
-warmup()  # run once before timed batch evaluation
 values = evaluate(labels, anomaly_scores)
 fixed_values = evaluate(labels, anomaly_scores, y_pred=predictions)
 

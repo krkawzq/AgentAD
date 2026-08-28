@@ -19,7 +19,6 @@ from agentad.evaluation import (
     range_prf,
     reconstruct_series,
     volume_under_surface,
-    warmup,
 )
 
 
@@ -49,6 +48,15 @@ def test_point_adjust_does_not_mutate_prediction(binary_case):
     np.testing.assert_array_equal(predictions, original)
     assert adjusted.dtype == np.bool_
     assert adjusted[6:9].all()
+
+
+def test_point_adjust_fills_whole_event_including_series_start():
+    labels = np.array([1, 1, 1, 1, 0, 0], dtype=np.uint8)
+    predictions = np.array([0, 1, 0, 0, 0, 0], dtype=np.uint8)
+
+    adjusted = point_adjust(labels, predictions)
+
+    np.testing.assert_array_equal(adjusted, [1, 1, 1, 1, 0, 0])
 
 
 def test_metric_selection_and_undefined_classes(binary_case):
@@ -178,10 +186,6 @@ def test_period_fallback_for_constant_series():
     values = np.ones(20_001)
     values[-1] = np.nan
     assert find_period(values) == 125
-
-
-def test_explicit_warmup():
-    assert warmup() is None
 
 
 def test_default_metric_names_are_stable_and_unique():
