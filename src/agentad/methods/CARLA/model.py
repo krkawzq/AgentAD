@@ -49,11 +49,14 @@ class _ResidualBlock(nn.Module):
                 nn.BatchNorm1d(output_channels),
             )
             if input_channels != output_channels
-            else nn.Identity()
+            else None
         )
 
     def forward(self, x: Tensor) -> Tensor:
-        return F.relu(self.layers(x) + self.residual(x))
+        output = self.layers(x)
+        if self.residual is not None:
+            output = output + self.residual(x)
+        return output
 
 
 class _RepresentationNet(nn.Module):

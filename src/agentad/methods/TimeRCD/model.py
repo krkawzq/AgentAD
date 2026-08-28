@@ -272,6 +272,8 @@ class TimeRCD(nn.Module):
             masked_points = self._random_mask(series, generator)
         if masked_points.shape != series.shape[:2]:
             raise ValueError("masked_points must have shape [batch, time]")
+        if not masked_points.any():
+            raise ValueError("masked_points must select at least one time point")
         masked = series.masked_scatter(
             masked_points[..., None].expand_as(series),
             0.1
@@ -292,8 +294,14 @@ class TimeRCD(nn.Module):
         else:
             if labels.shape != series.shape[:2]:
                 raise ValueError("labels must have shape [batch, time]")
-            classification = F.cross_entropy(
-                output.logits.flatten(0, 1), (labels > 0).long().flatten()
+            valid = labels.flatten() >= 0
+            classification = (
+                F.cross_entropy(
+                    output.logits.flatten(0, 1)[valid],
+                    (labels.flatten()[valid] > 0).long(),
+                )
+                if valid.any()
+                else reconstruction.new_zeros(())
             )
         total = (
             self.config.reconstruction_weight * reconstruction

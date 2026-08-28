@@ -5,6 +5,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from agentad.methods import (  # noqa: E402
+    METHODS,
     AERCA,
     AERCAConfig,
     AxonAD,
@@ -40,6 +41,25 @@ from agentad.methods._utils import overlap_average  # noqa: E402
 def assert_finite_shape(tensor, shape):
     assert tensor.shape == shape
     assert torch.isfinite(tensor).all()
+
+
+def test_method_registry_exposes_detectors_but_not_agent_frameworks():
+    assert set(METHODS) == {
+        "AERCA",
+        "AxonAD",
+        "CARLA",
+        "CrossAD",
+        "DADA",
+        "KAN-AD",
+        "Left",
+        "MMPAD",
+        "PaAno",
+        "ScatterAD",
+        "Time-RCD",
+        "TSPulse-FT",
+        "TSPulse-ZS",
+        "xLSTMAD",
+    }
 
 
 def test_patch_scores_are_averaged_over_covered_points():
@@ -142,6 +162,8 @@ def test_left_losses_prototype_update_and_score():
         dropout=0,
         prototypes=4,
         confidence_threshold=0,
+        update_error_quantile=1,
+        update_disagreement_quantile=1,
         memory_warmup_steps=0,
         memory_ramp_steps=1,
         score_smoothing=3,
@@ -203,19 +225,18 @@ def test_tspulse_finetune_loss_and_zero_shot_score():
     assert_finite_shape(zero_shot.score(torch.randn(1, 22, 2), batch_size=3), (1, 22))
 
 
-def test_time_rcd_loss_and_chunked_score():
-    model = TimeRCD(
-        TimeRCDConfig(
-            input_features=2,
-            model_dim=16,
-            projection_dim=8,
-            patch_length=4,
-            layers=1,
-            heads=4,
-            dropout=0,
-            inference_window=8,
-        )
+def test_time_rcd_loss_score_and_checkpoint_conversion(tmp_path):
+    config = TimeRCDConfig(
+        input_features=2,
+        model_dim=16,
+        projection_dim=8,
+        patch_length=4,
+        layers=1,
+        heads=4,
+        dropout=0,
+        inference_window=8,
     )
+    model = TimeRCD(config)
     series = torch.randn(2, 12, 2)
     losses = model.compute_loss(
         series,
@@ -226,6 +247,19 @@ def test_time_rcd_loss_and_chunked_score():
     losses.total.backward()
     model.eval()
     assert_finite_shape(model.score(series, batch_size=2), (2, 12))
+    checkpoint = tmp_path / "time_rcd.pth"
+    torch.save(
+        {
+            "model_state_dict": {
+                f"module.{key}": value for key, value in model.state_dict().items()
+            }
+        },
+        checkpoint,
+    )
+    restored = TimeRCD(config)
+    restored.load_checkpoint(checkpoint)
+    for expected, actual in zip(model.parameters(), restored.parameters()):
+        assert torch.equal(expected, actual)
 
 
 def test_xlstmad_reconstruction_and_aligned_score():
@@ -297,8 +331,10 @@ def test_crossad_loss_and_score_shapes():
     assert loss.total.ndim == 0 and torch.isfinite(loss.total)
     loss.total.backward()
 
-    model.eval()
+    context_before = model.context_memory.context.clone()
     assert_finite_shape(model.score(series), (2, 24))
+    assert model.training
+    assert torch.equal(context_before, model.context_memory.context)
 
 
 def test_dada_masked_reconstructions_score_and_checkpoint_conversion(tmp_path):
@@ -345,6 +381,7 @@ def test_kanad_forecast_pairs_loss_and_score():
     assert loss.total.ndim == 0 and torch.isfinite(loss.total)
     assert_finite_shape(model.window_score(windows, targets), (12,))
     assert_finite_shape(model.score(series), (3, 12))
+    assert model.training
 
 
 def test_paano_training_memory_and_point_scores():

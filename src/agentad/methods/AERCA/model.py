@@ -105,11 +105,11 @@ class AERCA(nn.Module):
         if torch.any(sign <= 0):
             raise RuntimeError("residual covariance is not positive definite")
         mean = samples.mean(0)
-        return 0.5 * (
+        return (
             covariance.trace()
             + mean.square().sum()
             - self.config.input_features
-            - logdet
+            + logdet
         )
 
     def _validate_input(self, x: Tensor) -> Tensor:

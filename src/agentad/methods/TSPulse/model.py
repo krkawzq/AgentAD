@@ -252,20 +252,40 @@ class TSPulse(nn.Module):
         frequency: bool,
     ) -> Tensor:
         start = self.config.context_length - self.config.aggregation_length
+        patch_starts = torch.arange(
+            start,
+            self.config.context_length,
+            self.config.patch_length,
+            device=windows.device,
+        )
+        patch_count = patch_starts.numel()
+        expanded = (
+            windows[:, None]
+            .expand(-1, patch_count, -1, -1)
+            .reshape(-1, self.config.context_length, self.config.input_features)
+        )
+        positions = torch.arange(self.config.context_length, device=windows.device)
+        masked = (positions[None] >= patch_starts[:, None]) & (
+            positions[None] < patch_starts[:, None] + self.config.patch_length
+        )
+        observed = (
+            (~masked)[None, :, :, None]
+            .expand(windows.shape[0], -1, -1, self.config.input_features)
+            .reshape_as(expanded)
+        )
+        output = self(expanded, observed)
+        source = (
+            output.frequency_reconstruction if frequency else output.time_reconstruction
+        ).reshape(
+            windows.shape[0],
+            patch_count,
+            self.config.context_length,
+            self.config.input_features,
+        )
         reconstruction = windows.clone()
-        for patch_start in range(
-            start, self.config.context_length, self.config.patch_length
-        ):
-            observed = torch.ones_like(windows, dtype=torch.bool)
-            observed[:, patch_start : patch_start + self.config.patch_length] = False
-            output = self(windows, observed)
-            source = (
-                output.frequency_reconstruction
-                if frequency
-                else output.time_reconstruction
-            )
+        for index, patch_start in enumerate(patch_starts.tolist()):
             reconstruction[:, patch_start : patch_start + self.config.patch_length] = (
-                source[:, patch_start : patch_start + self.config.patch_length]
+                source[:, index, patch_start : patch_start + self.config.patch_length]
             )
         return reconstruction
 
@@ -289,7 +309,10 @@ class TSPulse(nn.Module):
 
     @torch.inference_mode()
     def score(self, series: Tensor, *, batch_size: int = 128) -> Tensor:
-        series = validate_series(series, min_length=self.config.context_length + 1)
+        minimum_length = self.config.context_length + (
+            "forecast" in self.config.score_modes
+        )
+        series = validate_series(series, min_length=minimum_length)
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
         with evaluation_mode(self):
@@ -344,11 +367,12 @@ class TSPulse(nn.Module):
                     (1, 1, self.config.smoothing_window),
                     1 / self.config.smoothing_window,
                 )
-                padding = self.config.smoothing_window // 2
+                left = (self.config.smoothing_window - 1) // 2
+                right = self.config.smoothing_window - 1 - left
                 combined = F.conv1d(
-                    F.pad(combined[:, None], (padding, padding), mode="replicate"),
+                    F.pad(combined[:, None], (left, right), mode="replicate"),
                     kernel,
-                )[:, 0, : series.shape[1]]
+                )[:, 0]
             return combined
 
 

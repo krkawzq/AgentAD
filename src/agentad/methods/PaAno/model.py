@@ -203,13 +203,13 @@ class PaAno(nn.Module):
             torch.eye(
                 similarities.shape[0], device=similarities.device, dtype=torch.bool
             ),
-            -torch.inf,
+            torch.inf,
         )
-        hardest_negative_distance = 1 - negative_similarities.max(1).values
+        selected_negative_distance = (1 - negative_similarities).max(1).values
         triplet = (
             F.relu(
                 positive_distance
-                - hardest_negative_distance
+                - selected_negative_distance
                 + self.config.triplet_margin
             ).mean()
             * self.config.triplet_scale

@@ -144,13 +144,28 @@ class _AdaptiveBottleneck(nn.Module):
         clean_logits = x @ self.w_gate
         if self.noisy_gating and self.training:
             noise_std = F.softplus(x @ self.w_noise) + 1e-2
-            logits = clean_logits + torch.randn_like(clean_logits) * noise_std
+            noisy_logits = clean_logits + torch.randn_like(clean_logits) * noise_std
+            logits = noisy_logits
         else:
             logits = clean_logits
-        values, indices = logits.topk(self.k, dim=1)
+            noisy_logits = noise_std = None
+        top_count = min(self.k + 1, logits.shape[1])
+        top_values, top_indices = logits.topk(top_count, dim=1)
+        values = top_values[:, : self.k]
+        indices = top_indices[:, : self.k]
         weights = values.softmax(dim=1)
         gates = torch.zeros_like(logits).scatter(1, indices, weights)
-        load = (gates > 0).sum(0).to(gates.dtype)
+        if noisy_logits is not None and self.k < logits.shape[1]:
+            threshold_in = top_values[:, self.k : self.k + 1]
+            threshold_out = top_values[:, self.k - 1 : self.k]
+            is_in = noisy_logits > threshold_in
+            standardized_in = (clean_logits - threshold_in) / noise_std
+            standardized_out = (clean_logits - threshold_out) / noise_std
+            cdf_in = 0.5 * (1 + torch.erf(standardized_in / math.sqrt(2)))
+            cdf_out = 0.5 * (1 + torch.erf(standardized_out / math.sqrt(2)))
+            load = torch.where(is_in, cdf_in, cdf_out).sum(0)
+        else:
+            load = (gates > 0).sum(0).to(gates.dtype)
         balance = (
             self._cv_squared(gates.sum(0)) + self._cv_squared(load)
         ) * self.loss_weight
