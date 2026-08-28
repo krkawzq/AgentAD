@@ -277,14 +277,13 @@ def _fixed_vus_prf_kernel(labels, predictions, window_size):
         for index in range(length):
             if not max_mask[index]:
                 continue
-            weight = extended[index]
             if labels[index]:
-                weight = 1.0
-            elif not current_mask[index]:
-                weight = 0.0
-            label_mass += weight
-            if predictions[index]:
-                true_positive += weight
+                label_mass += 1.0
+                if predictions[index]:
+                    true_positive += 1.0
+            elif current_mask[index] and predictions[index]:
+                label_mass += extended[index]
+                true_positive += extended[index]
         effective_positives = (positives + label_mass) / 2.0
         recall = true_positive / effective_positives if effective_positives else 0.0
         if recall > 1.0:

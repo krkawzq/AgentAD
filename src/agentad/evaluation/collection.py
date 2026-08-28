@@ -88,6 +88,8 @@ class EvaluationResult:
 
     def micro_summary(self) -> pd.Series:
         """Aggregate standard point metrics from summed confusion counts."""
+        if self.per_series.empty:
+            raise ValueError("cannot micro-aggregate an empty evaluation")
         missing = [
             name for name in _STANDARD_COUNT_METRICS if name not in self.per_series
         ]
@@ -396,19 +398,23 @@ def evaluate_collection(
         raise ValueError("VUS-Precision, VUS-Recall and VUS-F require predictions")
     if not 0.0 <= range_alpha <= 1.0:
         raise ValueError("range_alpha must be in [0, 1]")
-    if precision_k is not None:
+    if "Precision@K" in selected and precision_k is not None:
         precision_k = non_negative_integer(precision_k, name="precision_k")
-    k_delay = non_negative_integer(k_delay, name="k_delay")
-    if k_delay < 1:
-        raise ValueError("k_delay must be at least 1")
-    tolerance = non_negative_integer(tolerance, name="tolerance")
-    _event_scale_code(event_scale, event_base)
-    _buffer_points(pate_early_buffer, pate_buffer_splits, pate_include_zero)
-    _buffer_points(pate_delayed_buffer, pate_buffer_splits, pate_include_zero)
-    if "PATE" in selected or ("PATE-F1" in selected and predictions is None):
-        pate_threshold_count = validate_threshold_count(
-            pate_threshold_count, name="pate_threshold_count"
-        )
+    if "K-Delay-PA-F1" in selected:
+        k_delay = non_negative_integer(k_delay, name="k_delay")
+        if k_delay < 1:
+            raise ValueError("k_delay must be at least 1")
+    if any(name.startswith("Tolerance-PA-") for name in selected):
+        tolerance = non_negative_integer(tolerance, name="tolerance")
+    if "Event-PA-F1" in selected:
+        _event_scale_code(event_scale, event_base)
+    if "PATE" in selected or "PATE-F1" in selected:
+        _buffer_points(pate_early_buffer, pate_buffer_splits, pate_include_zero)
+        _buffer_points(pate_delayed_buffer, pate_buffer_splits, pate_include_zero)
+        if "PATE" in selected or predictions is None:
+            pate_threshold_count = validate_threshold_count(
+                pate_threshold_count, name="pate_threshold_count"
+            )
     internal_selected = selected
     if any(name in _STANDARD_METRICS for name in selected):
         internal_selected = selected + tuple(

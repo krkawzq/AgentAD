@@ -22,6 +22,7 @@ dependencies = [
     "pyarrow>=25.0.1",
     "scipy>=1.18.1",
     "statsmodels>=0.15.0",
+    "torch",
     "zarr>=3.3.0",
 ]
 
@@ -30,6 +31,15 @@ download = [
     "gdown>=5.2,<6",
     "requests>=2.32,<3",
 ]
+
+# torch 使用官方 PyTorch 源提供的 CUDA 13.0 (cu130) wheel
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
 
 [dependency-groups]
 dev = [

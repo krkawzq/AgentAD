@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Literal, cast
+from typing import Literal
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -308,11 +308,7 @@ def first_hit(y_true: ArrayLike, y_score: ArrayLike) -> FirstHit:
     labels, scores = validate_pair(y_true, y_score)
     if not labels.any():
         return FirstHit(0, math.nan, False, False)
-    order = np.argsort(scores, kind="stable")[::-1]
+    order = np.argsort(-scores, kind="stable")
     rank = int(np.flatnonzero(labels[order])[0]) + 1
     fraction = rank / labels.size
     return FirstHit(rank, fraction, fraction < 0.03, fraction < 0.10)
-
-
-def _prepared_event_scale(value: str) -> EventScale:
-    return cast(EventScale, value)

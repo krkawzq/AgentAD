@@ -611,7 +611,7 @@ def _evaluate_prepared(
         for name in selected
     ):
         if labels.any():
-            order = np.argsort(scores, kind="stable")[::-1]
+            order = np.argsort(-scores, kind="stable")
             rank = int(np.flatnonzero(labels[order])[0]) + 1
             fraction = rank / labels.size
             computed["First-Hit-Rank"] = float(rank)

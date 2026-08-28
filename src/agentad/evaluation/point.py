@@ -122,7 +122,7 @@ def _precision_at_k_prepared(
         return math.nan
     if k > labels.size:
         raise ValueError(f"k must not exceed the series length: {k} > {labels.size}")
-    order = np.argsort(scores, kind="stable")[::-1]
+    order = np.argsort(-scores, kind="stable")
     return float(labels[order[:k]].sum() / k)
 
 
@@ -143,7 +143,7 @@ def _score_metrics_prepared(
     smoothing: float,
 ) -> tuple[float, float, float]:
     """Average precision, ROC AUC and best F1 from one stable score ordering."""
-    order = np.argsort(scores, kind="mergesort")[::-1]
+    order = np.argsort(-scores, kind="stable")
     sorted_scores = scores[order]
     sorted_labels = labels[order]
     distinct = np.flatnonzero(np.diff(sorted_scores))
@@ -192,7 +192,7 @@ def _best_point_metrics_prepared(
     smoothing: float,
 ) -> PointMetrics:
     """Point metrics at the exact threshold that maximizes point F1."""
-    order = np.argsort(scores, kind="stable")[::-1]
+    order = np.argsort(-scores, kind="stable")
     sorted_scores = scores[order]
     sorted_labels = labels[order]
     distinct = np.flatnonzero(np.diff(sorted_scores))
