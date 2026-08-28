@@ -55,3 +55,35 @@ test("value domains remain drawable for constants and extreme values", () => {
   assert.ok(Number.isFinite(core.valueToY(-1e308, extreme, 0, 100)));
   assert.equal(core.valueDomain([null, undefined, Number.NaN]), null);
 });
+
+test("timeline pan and anchored zoom remain inside the series", () => {
+  assert.deepEqual(core.panWindow([20, 40], -100, 100), [0, 20]);
+  assert.deepEqual(core.panWindow([20, 40], 100, 100), [80, 100]);
+  assert.deepEqual(core.zoomWindow([20, 60], 0.5, 30, 100), [25, 45]);
+  assert.deepEqual(core.zoomWindow([0, 100], 2, 50, 100), [0, 100]);
+});
+
+test("2D point buffers preserve gaps and apply rotation", () => {
+  const point = core.transformPoint2D(
+    2,
+    1,
+    { rotation: 90, scaleX: 1, scaleY: 1, flipX: false, flipY: false },
+    1,
+    1,
+  );
+  assert.ok(Math.abs(point[0] - 1) < 1e-12);
+  assert.ok(Math.abs(point[1] - 2) < 1e-12);
+
+  const points = core.buildPolyline2D(
+    [0, 1, 2],
+    [2, null, 4],
+    (value) => value,
+    (value) => value * 2,
+    { rotation: 0, scaleX: 1, scaleY: 1, flipX: false, flipY: false },
+    0,
+    0,
+  );
+  assert.deepEqual([...points.slice(0, 2)], [0, 4]);
+  assert.ok(Number.isNaN(points[2]) && Number.isNaN(points[3]));
+  assert.deepEqual([...points.slice(4, 6)], [2, 8]);
+});

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import socket
@@ -14,7 +15,8 @@ from importlib.resources import files
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from ..series import SeriesData, read
+from ..series import SeriesData
+from ._csv import DEFAULT_MAX_CSV_BYTES, read_source
 from ._tree import PackageTree
 from ._view import DEFAULT_MAX_POINTS, SeriesDataView
 
@@ -25,6 +27,9 @@ _ASSETS = {
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/core.js": ("core.js", "text/javascript; charset=utf-8"),
 }
+MAX_REQUEST_TARGET_BYTES = 8_192
+MAX_REQUEST_WORKERS = 16
+CLIENT_TIMEOUT_SECONDS = 30
 
 
 class _RouteNotFound(LookupError):
@@ -84,12 +89,18 @@ class WebUI:
         *,
         path: str | None = None,
         root: str | os.PathLike | None = None,
-        title: str = "AgentAD Visualize",
+        title: str = "AgentAD Visualizer",
         log_requests: bool = False,
+        max_csv_bytes: int = DEFAULT_MAX_CSV_BYTES,
     ) -> None:
         if not isinstance(title, str) or not title.strip():
             raise ValueError("title must be a non-empty string")
+        if isinstance(max_csv_bytes, bool) or not isinstance(max_csv_bytes, int):
+            raise TypeError("max_csv_bytes must be an integer")
+        if max_csv_bytes < 1:
+            raise ValueError("max_csv_bytes must be positive")
         self.title = title.strip()
+        self.max_csv_bytes = max_csv_bytes
         self.tree = PackageTree(os.getcwd() if root is None else root)
         self._state_lock = threading.RLock()
         self._open_lock = threading.Lock()
@@ -101,10 +112,11 @@ class WebUI:
             self.set_collection(sdata, path=path)
         self.log_requests = log_requests
         asset_root = files(__package__).joinpath("static")
-        self._assets = {
-            path: (asset_root.joinpath(name).read_bytes(), content_type)
-            for path, (name, content_type) in _ASSETS.items()
-        }
+        self._assets: dict[str, tuple[bytes, str, str]] = {}
+        for asset_path, (name, content_type) in _ASSETS.items():
+            body = asset_root.joinpath(name).read_bytes()
+            etag = f'"{hashlib.blake2s(body, digest_size=12).hexdigest()}"'
+            self._assets[asset_path] = (body, content_type, etag)
 
     def set_collection(self, sdata: SeriesData, *, path: str | None = None) -> None:
         """Install the collection served by the chart endpoints."""
@@ -132,9 +144,9 @@ class WebUI:
         with self._open_lock:
             target = self.tree.resolve(relative)
             if not self.tree.is_loadable(relative):
-                raise ValueError("path is not a SeriesData package")
+                raise ValueError("path is not a supported data source")
             try:
-                sdata = read(target)
+                sdata = read_source(target, max_csv_bytes=self.max_csv_bytes)
                 view = SeriesDataView(sdata)
             except MemoryError:
                 raise
@@ -202,6 +214,12 @@ class WebUI:
         app = self
 
         class Handler(BaseHTTPRequestHandler):
+            server_version = "AgentAD"
+            sys_version = ""
+
+            def version_string(self) -> str:
+                return self.server_version
+
             def _headers(
                 self,
                 status: HTTPStatus,
@@ -209,6 +227,8 @@ class WebUI:
                 size: int,
                 *,
                 allow: str | None = None,
+                cache_control: str = "no-store",
+                etag: str | None = None,
             ) -> None:
                 self.send_response(status)
                 self.send_header("Content-Type", content_type)
@@ -217,7 +237,9 @@ class WebUI:
                     self.send_header("Allow", allow)
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.send_header("Referrer-Policy", "no-referrer")
-                self.send_header("Cache-Control", "no-store")
+                self.send_header("Cache-Control", cache_control)
+                if etag is not None:
+                    self.send_header("ETag", etag)
                 self.send_header("Cross-Origin-Resource-Policy", "same-origin")
                 self.send_header("Cross-Origin-Opener-Policy", "same-origin")
                 self.send_header(
@@ -227,7 +249,8 @@ class WebUI:
                 self.send_header(
                     "Content-Security-Policy",
                     "default-src 'self'; img-src 'self' data:; "
-                    "style-src 'self'; script-src 'self'; connect-src 'self'; "
+                    "style-src 'self' 'unsafe-inline'; script-src 'self'; "
+                    "connect-src 'self'; object-src 'none'; worker-src 'self'; "
                     "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
                 )
                 self.end_headers()
@@ -255,15 +278,51 @@ class WebUI:
                     if self.command != "HEAD":
                         self.wfile.write(body)
                     return
-                body, content_type = asset
-                self._headers(HTTPStatus.OK, content_type, len(body))
+                body, content_type, etag = asset
+                cache_control = (
+                    "no-cache"
+                    if path in {"/", "/index.html"}
+                    else "public, max-age=3600"
+                )
+                if self.headers.get("If-None-Match") == etag:
+                    self._headers(
+                        HTTPStatus.NOT_MODIFIED,
+                        content_type,
+                        0,
+                        cache_control=cache_control,
+                        etag=etag,
+                    )
+                    return
+                self._headers(
+                    HTTPStatus.OK,
+                    content_type,
+                    len(body),
+                    cache_control=cache_control,
+                    etag=etag,
+                )
                 if self.command != "HEAD":
                     self.wfile.write(body)
 
             def do_GET(self) -> None:  # noqa: N802
+                if len(self.path.encode("utf-8", errors="surrogatepass")) > (
+                    MAX_REQUEST_TARGET_BYTES
+                ):
+                    self._send_json(
+                        {"error": "request target is too long"},
+                        HTTPStatus.REQUEST_URI_TOO_LONG,
+                    )
+                    return
                 request = urlsplit(self.path)
                 if not request.path.startswith("/api/"):
                     self._send_asset(request.path)
+                    return
+                if request.path == "/api/open" and self.headers.get(
+                    "Sec-Fetch-Site"
+                ) not in {None, "none", "same-origin"}:
+                    self._send_json(
+                        {"error": "cross-origin collection changes are not allowed"},
+                        HTTPStatus.FORBIDDEN,
+                    )
                     return
                 try:
                     query = parse_qs(
@@ -303,6 +362,26 @@ class WebUI:
                     return
                 self._send_asset(request.path)
 
+            def _method_not_allowed(self) -> None:
+                body = b'{"error":"method not allowed"}'
+                self._headers(
+                    HTTPStatus.METHOD_NOT_ALLOWED,
+                    "application/json; charset=utf-8",
+                    len(body),
+                    allow="GET, HEAD",
+                )
+                self.wfile.write(body)
+
+            do_DELETE = _method_not_allowed
+            do_OPTIONS = _method_not_allowed
+            do_PATCH = _method_not_allowed
+            do_POST = _method_not_allowed
+            do_PUT = _method_not_allowed
+
+            def setup(self) -> None:
+                super().setup()
+                self.connection.settimeout(CLIENT_TIMEOUT_SECONDS)
+
             def log_message(self, format: str, *args: object) -> None:
                 if app.log_requests:
                     super().log_message(format, *args)
@@ -310,6 +389,29 @@ class WebUI:
         class Server(ThreadingHTTPServer):
             daemon_threads = True
             allow_reuse_address = True
+            request_queue_size = 64
+
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                self._request_slots = threading.BoundedSemaphore(MAX_REQUEST_WORKERS)
+                super().__init__(*args, **kwargs)
+
+            def process_request(self, request: Any, client_address: Any) -> None:
+                self._request_slots.acquire()
+                try:
+                    super().process_request(request, client_address)
+                except BaseException:
+                    self._request_slots.release()
+                    raise
+
+            def process_request_thread(
+                self,
+                request: Any,
+                client_address: Any,
+            ) -> None:
+                try:
+                    super().process_request_thread(request, client_address)
+                finally:
+                    self._request_slots.release()
 
         if ":" in host:
             Server.address_family = socket.AF_INET6
@@ -329,7 +431,7 @@ class WebUI:
         if ":" in browser_host:
             browser_host = f"[{browser_host}]"
         url = f"http://{browser_host}:{actual_port}"
-        print(f"AgentAD Visualize: {url}")
+        print(f"AgentAD Visualizer: {url}")
         if actual_host not in {"127.0.0.1", "::1", "localhost"}:
             print(
                 "Warning: the package browser is reachable from non-loopback "
@@ -354,9 +456,10 @@ def serve(
     *,
     path: str | None = None,
     root: str | os.PathLike | None = None,
-    title: str = "AgentAD Visualize",
+    title: str = "AgentAD Visualizer",
     open_browser: bool = False,
     log_requests: bool = False,
+    max_csv_bytes: int = DEFAULT_MAX_CSV_BYTES,
 ) -> None:
     """Convenience entry point for a blocking local WebUI server."""
     WebUI(
@@ -365,4 +468,5 @@ def serve(
         root=root,
         title=title,
         log_requests=log_requests,
+        max_csv_bytes=max_csv_bytes,
     ).serve(host, port, open_browser=open_browser)

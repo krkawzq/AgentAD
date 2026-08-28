@@ -4,7 +4,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-__all__ = ["PRF1", "PointMetrics"]
+__all__ = ["AUCResult", "FirstHit", "PRF1", "PointMetrics"]
+
+
+@dataclass(frozen=True, slots=True)
+class AUCResult:
+    """ROC and precision-recall areas produced by one curve family."""
+
+    roc: float
+    pr: float
+
+
+@dataclass(frozen=True, slots=True)
+class FirstHit:
+    """Rank statistics for the highest-ranked score inside an anomaly."""
+
+    rank: int
+    fraction: float
+    hit_at_3_percent: bool
+    hit_at_10_percent: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,3 +43,8 @@ class PointMetrics:
     recall: float
     f1: float
     mcc: float
+    f05: float
+    tp: int
+    fp: int
+    fn: int
+    tn: int

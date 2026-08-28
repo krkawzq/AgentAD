@@ -21,38 +21,38 @@ NormalizationScope = Literal["feature", "global"]
 NORMALIZATIONS: tuple[dict[str, str], ...] = (
     {
         "id": "none",
-        "name": "原始值",
-        "description": "不改变数值尺度",
+        "name": "Raw values",
+        "description": "Keep the original numeric scale",
     },
     {
         "id": "zscore",
         "name": "Z-score",
-        "description": "减去均值并除以标准差",
+        "description": "Subtract the mean and divide by standard deviation",
     },
     {
         "id": "minmax",
         "name": "Min-max",
-        "description": "线性缩放到 [0, 1]",
+        "description": "Linearly scale values to [0, 1]",
     },
     {
         "id": "robust",
         "name": "Robust",
-        "description": "减去中位数并除以四分位距",
+        "description": "Subtract the median and divide by the interquartile range",
     },
     {
         "id": "maxabs",
         "name": "Max-abs",
-        "description": "除以最大绝对值，保留零点",
+        "description": "Divide by the maximum absolute value while preserving zero",
     },
     {
         "id": "l1",
         "name": "L1",
-        "description": "除以绝对值之和",
+        "description": "Divide by the sum of absolute values",
     },
     {
         "id": "l2",
         "name": "L2",
-        "description": "除以欧氏范数",
+        "description": "Divide by the Euclidean norm",
     },
 )
 

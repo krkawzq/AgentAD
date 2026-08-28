@@ -4,6 +4,9 @@ This implements the TSB-AD VUS definition while replacing its nested
 ``window x threshold x point`` Python loops with a compiled rank/prefix-sum
 kernel. The algorithm remains serial and uses O(n + windows x thresholds)
 working memory.
+
+Adapted from TheDatumOrg/TSB-AD under Apache-2.0; see
+``THIRD_PARTY_NOTICES.md``.
 """
 
 from __future__ import annotations
@@ -16,9 +19,20 @@ from numba import njit
 from numpy.typing import ArrayLike, NDArray
 
 from ._kernels import binary_runs_kernel
-from ._validation import validate_pair
+from ._types import AUCResult, PRF1
+from ._validation import (
+    binary_array,
+    non_negative_integer,
+    threshold_count as validate_threshold_count,
+    validate_pair,
+)
 
-__all__ = ["VUSResult", "volume_under_surface"]
+__all__ = [
+    "VUSResult",
+    "fixed_vus_prf",
+    "range_auc",
+    "volume_under_surface",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +41,8 @@ class VUSResult:
 
     roc: float
     pr: float
+    roc_by_window: NDArray[np.float64]
+    pr_by_window: NDArray[np.float64]
     tpr: NDArray[np.float64]
     fpr: NDArray[np.float64]
     precision: NDArray[np.float64]
@@ -138,8 +154,8 @@ def _vus_kernel(
         tpr = np.empty((0, 0), dtype=np.float64)
         fpr = np.empty((0, 0), dtype=np.float64)
         precision = np.empty((0, 0), dtype=np.float64)
-    auc_total = 0.0
-    ap_total = 0.0
+    roc_by_window = np.empty(window_size + 1, dtype=np.float64)
+    pr_by_window = np.empty(window_size + 1, dtype=np.float64)
     positives = float(labels.sum())
     extended = np.empty(length, dtype=np.float64)
     current_mask = np.empty(length, dtype=np.uint8)
@@ -227,22 +243,64 @@ def _vus_kernel(
                 precision[window, curve_index] = current_precision
 
         auc += (1.0 - previous_fpr) * (1.0 + previous_tpr) / 2.0
-        auc_total += auc
-        ap_total += average_precision
+        roc_by_window[window] = auc
+        pr_by_window[window] = average_precision
         if store_surface:
             tpr[window, threshold_count + 1] = 1.0
             fpr[window, threshold_count + 1] = 1.0
 
-    window_count = window_size + 1
-    return tpr, fpr, precision, auc_total / window_count, ap_total / window_count
+    return tpr, fpr, precision, roc_by_window, pr_by_window
 
 
-def _validate_non_negative_int(value: int, *, name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
-        raise TypeError(f"{name} must be an integer")
-    if value < 0:
-        raise ValueError(f"{name} must be non-negative")
-    return int(value)
+@njit(cache=True, nogil=True)
+def _fixed_vus_prf_kernel(labels, predictions, window_size):
+    starts, stops = binary_runs_kernel(labels)
+    if starts.size == 0:
+        return np.nan, np.nan, np.nan
+    length = labels.size
+    positives = float(labels.sum())
+    prediction_count = float(predictions.sum())
+    max_starts, max_stops = _padded_runs(starts, stops, length, window_size)
+    max_mask = _mask_runs(max_starts, max_stops, length)
+    current_mask = np.empty(length, dtype=np.uint8)
+    extended = np.empty(length, dtype=np.float64)
+    precision_total = 0.0
+    recall_total = 0.0
+    f1_total = 0.0
+
+    for window in range(window_size + 1):
+        _extend_labels_into(extended, labels, starts, stops, window)
+        current_starts, current_stops = _padded_runs(starts, stops, length, window)
+        _mask_runs_into(current_mask, current_starts, current_stops)
+        true_positive = 0.0
+        label_mass = 0.0
+        for index in range(length):
+            if not max_mask[index]:
+                continue
+            weight = extended[index]
+            if labels[index]:
+                weight = 1.0
+            elif not current_mask[index]:
+                weight = 0.0
+            label_mass += weight
+            if predictions[index]:
+                true_positive += weight
+        effective_positives = (positives + label_mass) / 2.0
+        recall = true_positive / effective_positives if effective_positives else 0.0
+        if recall > 1.0:
+            recall = 1.0
+        precision = true_positive / prediction_count if prediction_count else 0.0
+        f1 = (
+            2.0 * precision * recall / (precision + recall)
+            if precision + recall
+            else 0.0
+        )
+        precision_total += precision
+        recall_total += recall
+        f1_total += f1
+
+    count = window_size + 1
+    return precision_total / count, recall_total / count, f1_total / count
 
 
 def volume_under_surface(
@@ -254,12 +312,8 @@ def volume_under_surface(
 ) -> VUSResult:
     """Compute VUS-ROC/VUS-PR and their underlying surfaces."""
     labels, scores = validate_pair(y_true, y_score)
-    window_size = _validate_non_negative_int(window_size, name="window_size")
-    threshold_count = _validate_non_negative_int(
-        threshold_count, name="threshold_count"
-    )
-    if threshold_count < 2:
-        raise ValueError("threshold_count must be at least 2")
+    window_size = non_negative_integer(window_size, name="window_size")
+    threshold_count = validate_threshold_count(threshold_count)
 
     return _volume_under_surface_prepared(
         labels,
@@ -267,6 +321,43 @@ def volume_under_surface(
         window_size=window_size,
         threshold_count=threshold_count,
     )
+
+
+def range_auc(
+    y_true: ArrayLike,
+    y_score: ArrayLike,
+    *,
+    window_size: int = 100,
+    threshold_count: int = 250,
+) -> AUCResult:
+    """Range-AUC-ROC and Range-AUC-PR at one tolerance window."""
+    result = volume_under_surface(
+        y_true,
+        y_score,
+        window_size=window_size,
+        threshold_count=threshold_count,
+    )
+    return AUCResult(float(result.roc_by_window[-1]), float(result.pr_by_window[-1]))
+
+
+def fixed_vus_prf(
+    y_true: ArrayLike,
+    y_pred: ArrayLike,
+    *,
+    window_size: int = 100,
+) -> PRF1:
+    """VUS precision, recall and F1 for one fixed binary decision."""
+    labels = binary_array(y_true, name="y_true")
+    predictions = binary_array(y_pred, name="y_pred")
+    if labels.size != predictions.size:
+        raise ValueError(
+            f"y_true and y_pred must have the same length: {labels.size} != {predictions.size}"
+        )
+    window_size = non_negative_integer(window_size, name="window_size")
+    precision, recall, f1 = _fixed_vus_prf_kernel(
+        labels, predictions, window_size
+    )
+    return PRF1(float(precision), float(recall), float(f1))
 
 
 def _volume_under_surface_prepared(
@@ -284,9 +375,12 @@ def _volume_under_surface_prepared(
         precision_shape = (
             (window_size + 1, threshold_count + 1) if return_surface else (0, 0)
         )
+        per_window = np.full(window_size + 1, math.nan)
         return VUSResult(
             math.nan,
             math.nan,
+            per_window,
+            per_window.copy(),
             np.full(shape, math.nan),
             np.full(shape, math.nan),
             np.full(precision_shape, math.nan),
@@ -297,7 +391,7 @@ def _volume_under_surface_prepared(
     sorted_scores = np.ascontiguousarray(scores[descending_order])
     indices = np.linspace(0, scores.size - 1, threshold_count).astype(np.int64)
     thresholds = np.ascontiguousarray(sorted_scores[indices])
-    tpr, fpr, precision, roc, pr = _vus_kernel(
+    tpr, fpr, precision, roc_by_window, pr_by_window = _vus_kernel(
         labels,
         scores,
         thresholds,
@@ -306,4 +400,13 @@ def _volume_under_surface_prepared(
         window_size,
         return_surface,
     )
-    return VUSResult(float(roc), float(pr), tpr, fpr, precision, windows)
+    return VUSResult(
+        float(roc_by_window.mean()),
+        float(pr_by_window.mean()),
+        roc_by_window,
+        pr_by_window,
+        tpr,
+        fpr,
+        precision,
+        windows,
+    )

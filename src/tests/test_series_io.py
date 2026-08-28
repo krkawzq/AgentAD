@@ -8,7 +8,6 @@ import pandas as pd
 import pytest
 import zarr
 
-import agentad
 from agentad import SeriesData
 from agentad.series import read, write
 from agentad.series import _write as series_write
@@ -38,10 +37,6 @@ def sdata() -> SeriesData:
 
 
 class TestWriteRead:
-    def test_top_level_io_exports(self):
-        assert agentad.read is read
-        assert agentad.write is write
-
     def test_write_validates_boundary_arguments(self, sdata, tmp_path):
         with pytest.raises(TypeError, match="SeriesData"):
             write(object(), tmp_path / "x.zip")

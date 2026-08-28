@@ -3,6 +3,9 @@
 The kernels are deliberately serial. Evaluation commonly processes many short
 series concurrently, where implicit per-series parallelism would oversubscribe
 CPUs and cost more than the arithmetic it saves.
+
+Parts are adapted from TheDatumOrg/TSB-AD under Apache-2.0; see
+``THIRD_PARTY_NOTICES.md``.
 """
 
 from __future__ import annotations
@@ -13,10 +16,16 @@ from numba import njit
 __all__ = [
     "affiliation_prf_kernel",
     "best_affiliation_f1_kernel",
+    "best_affiliation_prf_kernel",
     "best_event_f1_kernel",
+    "best_event_prf_kernel",
     "best_oracle_f1s_kernel",
+    "best_oracle_prfs_kernel",
     "best_point_adjusted_f1_kernel",
+    "best_point_adjusted_counts_kernel",
+    "best_point_adjusted_prf_kernel",
     "best_range_f1_kernel",
+    "best_range_prf_kernel",
     "binary_runs_kernel",
     "confusion_counts_kernel",
     "event_prf_kernel",
@@ -182,6 +191,51 @@ def best_point_adjusted_f1_kernel(y_true, scores, thresholds):
 
 
 @njit(cache=True, nogil=True)
+def best_point_adjusted_prf_kernel(y_true, scores, thresholds):
+    prediction = np.empty(y_true.size, dtype=np.uint8)
+    starts, stops = binary_runs_kernel(y_true)
+    best_precision = 0.0
+    best_recall = 0.0
+    best_f1 = 0.0
+    for threshold in thresholds:
+        for index in range(scores.size):
+            prediction[index] = 1 if scores[index] > threshold else 0
+        adjusted = _point_adjust_from_runs(prediction, starts, stops)
+        tp, fp, fn, _ = confusion_counts_kernel(y_true, adjusted)
+        precision, recall, f1 = _prf_from_counts(tp, fp, fn)
+        if f1 > best_f1:
+            best_precision = precision
+            best_recall = recall
+            best_f1 = f1
+    return best_precision, best_recall, best_f1
+
+
+@njit(cache=True, nogil=True)
+def best_point_adjusted_counts_kernel(y_true, scores, thresholds):
+    """Confusion counts at the threshold maximizing point-adjusted F1."""
+    prediction = np.empty(y_true.size, dtype=np.uint8)
+    starts, stops = binary_runs_kernel(y_true)
+    best_f1 = -1.0
+    best_tp = 0
+    best_fp = 0
+    best_fn = 0
+    best_tn = 0
+    for threshold in thresholds:
+        for index in range(scores.size):
+            prediction[index] = 1 if scores[index] > threshold else 0
+        adjusted = _point_adjust_from_runs(prediction, starts, stops)
+        tp, fp, fn, tn = confusion_counts_kernel(y_true, adjusted)
+        _, _, f1 = _prf_from_counts(tp, fp, fn)
+        if f1 > best_f1:
+            best_f1 = f1
+            best_tp = tp
+            best_fp = fp
+            best_fn = fn
+            best_tn = tn
+    return best_tp, best_fp, best_fn, best_tn
+
+
+@njit(cache=True, nogil=True)
 def best_event_f1_kernel(y_true, scores, thresholds):
     prediction = np.empty(y_true.size, dtype=np.uint8)
     starts, stops = binary_runs_kernel(y_true)
@@ -193,6 +247,26 @@ def best_event_f1_kernel(y_true, scores, thresholds):
         if f1 > best:
             best = f1
     return best
+
+
+@njit(cache=True, nogil=True)
+def best_event_prf_kernel(y_true, scores, thresholds):
+    prediction = np.empty(y_true.size, dtype=np.uint8)
+    starts, stops = binary_runs_kernel(y_true)
+    best_precision = 0.0
+    best_recall = 0.0
+    best_f1 = 0.0
+    for threshold in thresholds:
+        for index in range(scores.size):
+            prediction[index] = 1 if scores[index] > threshold else 0
+        precision, recall, f1 = _event_prf_from_runs(
+            y_true, prediction, starts, stops
+        )
+        if f1 > best_f1:
+            best_precision = precision
+            best_recall = recall
+            best_f1 = f1
+    return best_precision, best_recall, best_f1
 
 
 @njit(cache=True, nogil=True)
@@ -218,6 +292,35 @@ def best_range_f1_kernel(y_true, scores, thresholds, alpha=0.2):
         if f1 > best:
             best = f1
     return best
+
+
+@njit(cache=True, nogil=True)
+def best_range_prf_kernel(y_true, scores, thresholds, alpha=0.2):
+    prediction = np.empty(y_true.size, dtype=np.uint8)
+    true_starts, true_stops = binary_runs_kernel(y_true)
+    best_precision = 0.0
+    best_recall = 0.0
+    best_f1 = 0.0
+    for threshold in thresholds:
+        for index in range(scores.size):
+            prediction[index] = 1 if scores[index] > threshold else 0
+        pred_starts, pred_stops = binary_runs_kernel(prediction)
+        recall = _range_reward_runs(
+            true_starts, true_stops, pred_starts, pred_stops, alpha
+        )
+        precision = _range_reward_runs(
+            pred_starts, pred_stops, true_starts, true_stops, 0.0
+        )
+        f1 = (
+            2.0 * precision * recall / (precision + recall)
+            if precision + recall
+            else 0.0
+        )
+        if f1 > best_f1:
+            best_precision = precision
+            best_recall = recall
+            best_f1 = f1
+    return best_precision, best_recall, best_f1
 
 
 @njit(cache=True, nogil=True)
@@ -259,6 +362,69 @@ def best_oracle_f1s_kernel(y_true, scores, thresholds, alpha=0.2):
         if range_f1 > best_range:
             best_range = range_f1
     return best_pa, best_event, best_range
+
+
+@njit(cache=True, nogil=True)
+def best_oracle_prfs_kernel(y_true, scores, thresholds, alpha=0.2):
+    """Best PA, composite-event and range PRF triplets in one score sweep."""
+    prediction = np.empty(y_true.size, dtype=np.uint8)
+    true_starts, true_stops = binary_runs_kernel(y_true)
+    best_pa_p = 0.0
+    best_pa_r = 0.0
+    best_pa_f = 0.0
+    best_event_p = 0.0
+    best_event_r = 0.0
+    best_event_f = 0.0
+    best_range_p = 0.0
+    best_range_r = 0.0
+    best_range_f = 0.0
+    for threshold in thresholds:
+        for index in range(scores.size):
+            prediction[index] = 1 if scores[index] > threshold else 0
+
+        adjusted = _point_adjust_from_runs(prediction, true_starts, true_stops)
+        tp, fp, fn, _ = confusion_counts_kernel(y_true, adjusted)
+        pa_p, pa_r, pa_f = _prf_from_counts(tp, fp, fn)
+        if pa_f > best_pa_f:
+            best_pa_p = pa_p
+            best_pa_r = pa_r
+            best_pa_f = pa_f
+
+        event_p, event_r, event_f = _event_prf_from_runs(
+            y_true, prediction, true_starts, true_stops
+        )
+        if event_f > best_event_f:
+            best_event_p = event_p
+            best_event_r = event_r
+            best_event_f = event_f
+
+        pred_starts, pred_stops = binary_runs_kernel(prediction)
+        range_r = _range_reward_runs(
+            true_starts, true_stops, pred_starts, pred_stops, alpha
+        )
+        range_p = _range_reward_runs(
+            pred_starts, pred_stops, true_starts, true_stops, 0.0
+        )
+        range_f = (
+            2.0 * range_p * range_r / (range_p + range_r)
+            if range_p + range_r
+            else 0.0
+        )
+        if range_f > best_range_f:
+            best_range_p = range_p
+            best_range_r = range_r
+            best_range_f = range_f
+    return (
+        best_pa_p,
+        best_pa_r,
+        best_pa_f,
+        best_event_p,
+        best_event_r,
+        best_event_f,
+        best_range_p,
+        best_range_r,
+        best_range_f,
+    )
 
 
 @njit(cache=True, nogil=True)
@@ -466,3 +632,28 @@ def best_affiliation_f1_kernel(labels, scores, thresholds):
         if not np.isnan(value) and value > best:
             best = value
     return best
+
+
+@njit(cache=True, nogil=True)
+def best_affiliation_prf_kernel(labels, scores, thresholds):
+    """Affiliation PRF at the threshold that maximizes affiliation F1."""
+    gt_starts, gt_stops = binary_runs_kernel(labels)
+    if gt_starts.size == 0:
+        return np.nan, np.nan, np.nan
+    prediction = np.empty(labels.size, dtype=np.uint8)
+    best_precision = 0.0
+    best_recall = 0.0
+    best_f1 = 0.0
+    for threshold in thresholds:
+        for index in range(scores.size):
+            prediction[index] = 1 if scores[index] > threshold else 0
+        pred_starts, pred_stops = binary_runs_kernel(prediction)
+        precision, recall = _affiliation_pr_from_runs(
+            pred_starts, pred_stops, gt_starts, gt_stops, labels.size
+        )
+        f1 = 2.0 * precision * recall / (precision + recall + 1e-15)
+        if not np.isnan(f1) and f1 > best_f1:
+            best_precision = precision
+            best_recall = recall
+            best_f1 = f1
+    return best_precision, best_recall, best_f1

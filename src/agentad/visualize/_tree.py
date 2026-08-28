@@ -8,17 +8,32 @@ from typing import Any
 from ..series._write import FILE_META
 
 PACKAGE_SUFFIX = ".zarr.zip"
+CSV_SUFFIX = ".csv"
 MAX_ENTRIES = 5_000
 
 
 def _is_loadable(path: str, *, is_dir: bool, name: str) -> bool:
     if is_dir:
         return os.path.isfile(os.path.join(path, FILE_META))
-    return os.path.isfile(path) and name.endswith(PACKAGE_SUFFIX)
+    return os.path.isfile(path) and name.casefold().endswith(
+        (PACKAGE_SUFFIX, CSV_SUFFIX)
+    )
+
+
+def _source_format(*, is_dir: bool, name: str, loadable: bool) -> str | None:
+    if not loadable:
+        return None
+    if is_dir:
+        return "seriesdata"
+    if name.casefold().endswith(CSV_SUFFIX):
+        return "csv"
+    if name.casefold().endswith(PACKAGE_SUFFIX):
+        return "seriesdata"
+    return None
 
 
 class PackageTree:
-    """List directories below ``root`` and locate SeriesData packages.
+    """List directories below ``root`` and locate supported data sources.
 
     Requested paths are resolved with ``os.path.realpath`` and must stay
     inside the root, so symlinks cannot make the server escape it. Entries
@@ -118,10 +133,16 @@ class PackageTree:
             )
         except OSError:
             size = None
+        loadable = _is_loadable(entry.path, is_dir=is_dir, name=entry.name)
         return {
             "name": entry.name,
             "path": "/".join([*parent_parts, entry.name]),
             "dir": is_dir,
-            "loadable": _is_loadable(entry.path, is_dir=is_dir, name=entry.name),
+            "loadable": loadable,
+            "format": _source_format(
+                is_dir=is_dir,
+                name=entry.name,
+                loadable=loadable,
+            ),
             "size": size,
         }

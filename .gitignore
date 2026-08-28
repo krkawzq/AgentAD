@@ -17,6 +17,9 @@ wheels/
 .coverage.*
 htmlcov/
 .venv*/
+node_modules/
+uv.lock
+Cargo.lock
 
 # OS / editor / agents
 .DS_Store

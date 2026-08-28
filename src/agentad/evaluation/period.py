@@ -1,4 +1,8 @@
-"""ACF-based period estimation used as the VUS window size."""
+"""ACF-based period estimation used as the VUS window size.
+
+Adapted from TheDatumOrg/TSB-AD under Apache-2.0; see
+``THIRD_PARTY_NOTICES.md``.
+"""
 
 from __future__ import annotations
 

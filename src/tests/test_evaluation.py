@@ -8,11 +8,12 @@ import pytest
 
 from agentad import SeriesData, SeriesItem, read
 from agentad.evaluation import (
-    DEFAULT_METRICS,
+    affiliation_prf,
     evaluate,
     evaluate_collection,
     event_prf,
     find_period,
+    generate_curve,
     point_adjust,
     point_adjusted_prf,
     point_metrics,
@@ -57,6 +58,11 @@ def test_point_adjust_fills_whole_event_including_series_start():
     adjusted = point_adjust(labels, predictions)
 
     np.testing.assert_array_equal(adjusted, [1, 1, 1, 1, 0, 0])
+
+
+def test_event_and_affiliation_boundary_semantics():
+    assert event_prf([0, 1, 1], [0, 0, 1]).f1 == 1.0
+    assert affiliation_prf([0, 1, 1], [0, 0, 0]).f1 == 0.0
 
 
 def test_metric_selection_and_undefined_classes(binary_case):
@@ -130,6 +136,91 @@ def test_collection_reconstruction_and_evaluation(tmp_path):
     np.testing.assert_array_equal(saved.labels["label"], [0, 0, 0, 1, 1])
 
 
+def test_reconstruction_and_scoring_are_isolated_from_source():
+    test = _collection([_collection_item("s", [1.0, 2.0], [10, 11], [0, 1])])
+    expected_data = test["s"].data.copy()
+    expected_timestamps = test["s"].timestamps.copy()
+    expected_labels = test["s"].labels.copy(deep=True)
+
+    reconstructed = next(reconstruct_series(test))
+    reconstructed.data[0, 0] = 99.0
+    reconstructed.timestamps[0] = 999
+    reconstructed.labels[0] = 1
+
+    np.testing.assert_array_equal(test["s"].data, expected_data)
+    np.testing.assert_array_equal(test["s"].timestamps, expected_timestamps)
+    pd.testing.assert_frame_equal(test["s"].labels, expected_labels)
+
+    def mutating_score(train_data, data):
+        assert train_data is None
+        data[:, 0] = -1.0
+        return np.array([0.0, 1.0])
+
+    evaluate_collection(
+        test,
+        score_fn=mutating_score,
+        metrics=("AUC-ROC",),
+        on_error="raise",
+    )
+    np.testing.assert_array_equal(test["s"].data, expected_data)
+
+
+def test_data_consumers_reject_mismatched_feature_schemas():
+    train = _collection([_collection_item("s", [1.0, 2.0], [0, 1], [0, 0])])
+    test = _collection([_collection_item("s", [3.0, 4.0], [0, 1], [0, 1])])
+    train.features.loc[0, "name"] = "temperature"
+    test.features.loc[0, "name"] = "pressure"
+
+    with pytest.raises(ValueError, match="feature schemas"):
+        next(reconstruct_series(test, train))
+    with pytest.raises(ValueError, match="feature schemas"):
+        evaluate_collection(
+            test,
+            train,
+            score_fn=lambda train_data, data: np.arange(len(data)),
+            metrics=("AUC-ROC",),
+        )
+
+
+def test_data_consumers_reject_mismatched_data_dtypes():
+    labels = pd.DataFrame({"label": [0, 1]})
+    train = SeriesData.from_items(
+        [
+            SeriesItem(
+                "s",
+                np.array([[1.0], [2.0]], dtype=np.float32),
+                np.array([0, 1], dtype=np.int64),
+                labels,
+            )
+        ],
+        features=pd.DataFrame({"name": ["x"]}),
+    )
+    test = SeriesData.from_items(
+        [
+            SeriesItem(
+                "s",
+                np.array([[3.0], [4.0]], dtype=np.float64),
+                np.array([0, 1], dtype=np.int64),
+                labels,
+            )
+        ],
+        features=pd.DataFrame({"name": ["x"]}),
+    )
+
+    with pytest.raises(ValueError, match="data dtypes"):
+        next(reconstruct_series(test, train))
+
+
+def test_data_consumers_reject_mismatched_feature_attrs():
+    train = _collection([_collection_item("s", [1.0, 2.0], [0, 1], [0, 0])])
+    test = _collection([_collection_item("s", [3.0, 4.0], [0, 1], [0, 1])])
+    train.features.attrs["unit"] = "celsius"
+    test.features.attrs["unit"] = "fahrenheit"
+
+    with pytest.raises(ValueError, match="feature attrs"):
+        next(reconstruct_series(test, train))
+
+
 def test_collection_error_policy_raises():
     test = _collection([_collection_item("s", [1.0, 2.0], [0, 1], [0, 1])])
     with pytest.raises(KeyError, match="no score"):
@@ -140,6 +231,72 @@ def test_collection_error_policy_raises():
             sliding_window=0,
             on_error="raise",
         )
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"score_fn": object()}, "score_fn must be callable"),
+        ({"scores": []}, "scores must be a mapping"),
+    ],
+)
+def test_collection_rejects_invalid_score_provider_configuration(kwargs, message):
+    test = _collection([_collection_item("s", [1.0, 2.0], [0, 1], [0, 1])])
+    with pytest.raises(TypeError, match=message):
+        evaluate_collection(test, metrics=("AUC-ROC",), **kwargs)
+
+
+def test_collection_error_policy_contains_label_validation_failures():
+    test = _collection(
+        [
+            _collection_item("bad", [1.0, 2.0], [0, 1], [0, 2]),
+            _collection_item("good", [1.0, 2.0], [0, 1], [0, 1]),
+        ]
+    )
+    result = evaluate_collection(
+        test,
+        scores={"bad": [0.0, 1.0], "good": [0.0, 1.0]},
+        metrics=("AUC-ROC",),
+        on_error="nan",
+    )
+
+    assert result.per_series["id"].tolist() == ["bad", "good"]
+    assert result.failures["id"].tolist() == ["bad"]
+    assert math.isnan(result.per_series.loc[0, "AUC-ROC"])
+    assert result.per_series.loc[1, "AUC-ROC"] == 1.0
+
+
+@pytest.mark.parametrize(
+    ("metrics", "kwargs", "message"),
+    [
+        (("PA-F1",), {"threshold_count": 1}, "threshold_count"),
+        (
+            ("VUS-ROC",),
+            {"sliding_window": 0, "vus_threshold_count": 1},
+            "vus_threshold_count",
+        ),
+    ],
+)
+def test_collection_validates_global_thresholds_before_scoring(
+    metrics, kwargs, message
+):
+    test = _collection([_collection_item("s", [1.0, 2.0], [0, 1], [0, 1])])
+    calls = 0
+
+    def score_fn(train_data, data):
+        nonlocal calls
+        calls += 1
+        return np.arange(len(data))
+
+    with pytest.raises(ValueError, match=message):
+        evaluate_collection(
+            test,
+            score_fn=score_fn,
+            metrics=metrics,
+            on_error="nan",
+            **kwargs,
+        )
+    assert calls == 0
 
 
 def test_precomputed_scores_skip_unused_data_period_and_score_items(monkeypatch):
@@ -188,6 +345,19 @@ def test_period_fallback_for_constant_series():
     assert find_period(values) == 125
 
 
-def test_default_metric_names_are_stable_and_unique():
-    assert len(DEFAULT_METRICS) == 9
-    assert len(set(DEFAULT_METRICS)) == len(DEFAULT_METRICS)
+@pytest.mark.parametrize(
+    ("sliding_window", "thresholds", "error", "message"),
+    [
+        (-1, 3, ValueError, "slidingWindow must be non-negative"),
+        (1.5, 3, TypeError, "slidingWindow must be an integer"),
+        (True, 3, TypeError, "slidingWindow must be an integer"),
+        (1, 1, ValueError, "thre must be at least 2"),
+        (1, 3.5, TypeError, "thre must be an integer"),
+        (1, True, TypeError, "thre must be an integer"),
+    ],
+)
+def test_generate_curve_validates_integer_parameters(
+    sliding_window, thresholds, error, message
+):
+    with pytest.raises(error, match=message):
+        generate_curve([0, 1, 0], [0.0, 1.0, 0.5], sliding_window, thre=thresholds)

@@ -1,4 +1,4 @@
-"""Interactive, dependency-free WebUI for ``SeriesData`` collections.
+"""Interactive WebUI for ``SeriesData`` collections and contract-based CSV.
 
 Typical use::
 
@@ -20,13 +20,16 @@ from ._normalize import (
     NormalizationScope,
     normalize,
 )
+from ._csv import CSV_FORMAT, read_csv
 from ._server import WebUI, serve
 
 __all__ = [
     "NORMALIZATIONS",
+    "CSV_FORMAT",
     "Normalization",
     "NormalizationScope",
     "WebUI",
     "normalize",
+    "read_csv",
     "serve",
 ]

@@ -1,4 +1,8 @@
-"""Point-adjusted, event, range and affiliation metrics."""
+"""Point-adjusted, event, range and affiliation metrics.
+
+Parts are adapted from TheDatumOrg/TSB-AD under Apache-2.0; see
+``THIRD_PARTY_NOTICES.md``.
+"""
 
 from __future__ import annotations
 
@@ -8,9 +12,13 @@ from numpy.typing import ArrayLike, NDArray
 from ._kernels import (
     affiliation_prf_kernel,
     best_affiliation_f1_kernel,
+    best_affiliation_prf_kernel,
     best_event_f1_kernel,
+    best_event_prf_kernel,
     best_point_adjusted_f1_kernel,
+    best_point_adjusted_prf_kernel,
     best_range_f1_kernel,
+    best_range_prf_kernel,
     event_prf_kernel,
     point_adjust_kernel,
     range_prf_kernel,
@@ -23,9 +31,13 @@ __all__ = [
     "PRF1",
     "affiliation_prf",
     "best_affiliation_f1",
+    "best_affiliation_prf",
     "best_event_f1",
+    "best_event_prf",
     "best_point_adjusted_f1",
+    "best_point_adjusted_prf",
     "best_range_f1",
+    "best_range_prf",
     "event_prf",
     "point_adjusted_prf",
     "range_prf",
@@ -97,12 +109,28 @@ def best_point_adjusted_f1(
     return float(best_point_adjusted_f1_kernel(labels, scores, thresholds))
 
 
+def best_point_adjusted_prf(
+    y_true: ArrayLike, y_score: ArrayLike, *, threshold_count: int = 100
+) -> PRF1:
+    """Point-adjusted PRF at the threshold maximizing adjusted F1."""
+    labels, scores, thresholds = _oracle_inputs(y_true, y_score, threshold_count)
+    return _triplet(best_point_adjusted_prf_kernel(labels, scores, thresholds))
+
+
 def best_event_f1(
     y_true: ArrayLike, y_score: ArrayLike, *, threshold_count: int = 100
 ) -> float:
     """Best composite event F1 on the deterministic threshold grid."""
     labels, scores, thresholds = _oracle_inputs(y_true, y_score, threshold_count)
     return float(best_event_f1_kernel(labels, scores, thresholds))
+
+
+def best_event_prf(
+    y_true: ArrayLike, y_score: ArrayLike, *, threshold_count: int = 100
+) -> PRF1:
+    """Composite-event PRF at the threshold maximizing event F1."""
+    labels, scores, thresholds = _oracle_inputs(y_true, y_score, threshold_count)
+    return _triplet(best_event_prf_kernel(labels, scores, thresholds))
 
 
 def best_range_f1(
@@ -119,12 +147,34 @@ def best_range_f1(
     return float(best_range_f1_kernel(labels, scores, thresholds, alpha))
 
 
+def best_range_prf(
+    y_true: ArrayLike,
+    y_score: ArrayLike,
+    *,
+    threshold_count: int = 100,
+    alpha: float = 0.2,
+) -> PRF1:
+    """Tatbul range PRF at the threshold maximizing range F1."""
+    if not 0.0 <= alpha <= 1.0:
+        raise ValueError("alpha must be in [0, 1]")
+    labels, scores, thresholds = _oracle_inputs(y_true, y_score, threshold_count)
+    return _triplet(best_range_prf_kernel(labels, scores, thresholds, alpha))
+
+
 def best_affiliation_f1(
     y_true: ArrayLike, y_score: ArrayLike, *, threshold_count: int = 100
 ) -> float:
     """Best affiliation F1 on the deterministic threshold grid."""
     labels, scores, thresholds = _oracle_inputs(y_true, y_score, threshold_count)
     return _best_affiliation_f1_prepared(labels, scores, thresholds)
+
+
+def best_affiliation_prf(
+    y_true: ArrayLike, y_score: ArrayLike, *, threshold_count: int = 100
+) -> PRF1:
+    """Affiliation PRF at the threshold maximizing affiliation F1."""
+    labels, scores, thresholds = _oracle_inputs(y_true, y_score, threshold_count)
+    return _triplet(best_affiliation_prf_kernel(labels, scores, thresholds))
 
 
 def _best_affiliation_f1_prepared(

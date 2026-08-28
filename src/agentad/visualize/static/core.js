@@ -44,6 +44,82 @@ export function nearestSampleIndex(indices, target) {
   return lo;
 }
 
+export function panWindow(window, delta, total) {
+  const [start, stop] = clampWindow(window[0], window[1], total);
+  const span = stop - start;
+  if (span >= total) return [0, Math.max(0, total)];
+  const shift = Math.round(Number(delta) || 0);
+  let nextStart = start + shift;
+  nextStart = Math.max(0, Math.min(nextStart, total - span));
+  return [nextStart, nextStart + span];
+}
+
+export function zoomWindow(window, factor, anchor, total) {
+  const [start, stop] = clampWindow(window[0], window[1], total);
+  if (total <= 0) return [0, 0];
+  const span = stop - start;
+  const safeFactor = Number.isFinite(factor) && factor > 0 ? factor : 1;
+  const nextSpan = Math.max(
+    Math.min(MIN_SPAN, total),
+    Math.min(total, Math.round(span * safeFactor)),
+  );
+  const safeAnchor = Number.isFinite(anchor) ? anchor : (start + stop) / 2;
+  const fraction = span > 0 ? (safeAnchor - start) / span : 0.5;
+  const nextStart = Math.round(safeAnchor - fraction * nextSpan);
+  return clampWindow(nextStart, nextStart + nextSpan, total);
+}
+
+export function transformPoint2D(x, y, transform, centerX, centerY) {
+  const angle = ((Number(transform.rotation) || 0) * Math.PI) / 180;
+  const scaleX = (Number(transform.scaleX) || 1) * (transform.flipX ? -1 : 1);
+  const scaleY = (Number(transform.scaleY) || 1) * (transform.flipY ? -1 : 1);
+  const dx = (x - centerX) * scaleX;
+  const dy = (y - centerY) * scaleY;
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  return [
+    centerX + cosine * dx - sine * dy,
+    centerY + sine * dx + cosine * dy,
+  ];
+}
+
+export function buildPolyline2D(
+  indices,
+  values,
+  mapX,
+  mapY,
+  transform,
+  centerX,
+  centerY,
+) {
+  const points = new Float64Array(indices.length * 2);
+  for (let position = 0; position < indices.length; position += 1) {
+    const value = values[position];
+    if (value === null || value === undefined || !Number.isFinite(value)) {
+      points[position * 2] = Number.NaN;
+      points[position * 2 + 1] = Number.NaN;
+      continue;
+    }
+    const x = mapX(indices[position]);
+    const y = mapY(value);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      points[position * 2] = Number.NaN;
+      points[position * 2 + 1] = Number.NaN;
+      continue;
+    }
+    const transformed = transformPoint2D(
+      x,
+      y,
+      transform,
+      centerX,
+      centerY,
+    );
+    points[position * 2] = transformed[0];
+    points[position * 2 + 1] = transformed[1];
+  }
+  return points;
+}
+
 export function parseHashState(hash) {
   const raw = typeof hash === "string" ? hash.replace(/^#/, "") : "";
   const params = new URLSearchParams(raw);

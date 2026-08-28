@@ -15,6 +15,7 @@ from ._normalize import NORMALIZATIONS, _normalize_inplace
 DEFAULT_MAX_POINTS = 4_000
 HARD_MAX_POINTS = 50_000
 MAX_SELECTED_FEATURES = 128
+MAX_RESPONSE_VALUES = 1_000_000
 
 
 def _display(value: Any) -> str:
@@ -224,7 +225,9 @@ class SeriesDataView:
                 "default_max_points": DEFAULT_MAX_POINTS,
                 "hard_max_points": HARD_MAX_POINTS,
                 "max_selected_features": MAX_SELECTED_FEATURES,
+                "max_response_values": MAX_RESPONSE_VALUES,
             },
+            "geometry": "polyline-2d-v1",
         }
 
     def items(
@@ -237,6 +240,25 @@ class SeriesDataView:
         if limit < 1 or limit > 200:
             raise ValueError("limit must be between 1 and 200")
         needle = query.casefold().strip()
+        if not needle:
+            total = len(self.sdata)
+            end = min(total, offset + limit)
+            page = [
+                {
+                    "index": index,
+                    "id": self.sdata.ids[index],
+                    "points": int(
+                        self.sdata.offsets[index + 1] - self.sdata.offsets[index]
+                    ),
+                }
+                for index in range(min(offset, total), end)
+            ]
+            return {
+                "items": page,
+                "offset": offset,
+                "total": total,
+                "has_more": end < total,
+            }
         page: list[dict[str, Any]] = []
         total = 0
         for index, folded_id in enumerate(self._folded_ids):
@@ -305,15 +327,23 @@ class SeriesDataView:
         if any(index < 0 or index >= item.n_features for index in feature_indices):
             raise ValueError("feature index out of range")
 
-        source = item.data[start:stop][:, feature_indices]
+        returned_points = min(stop - start, max_points)
+        if returned_points * len(feature_indices) > MAX_RESPONSE_VALUES:
+            raise ValueError(
+                "requested chart contains too many values; reduce max_points "
+                "or the selected feature count"
+            )
+
+        source = item.data[start:stop]
         if np.iscomplexobj(source):
             raise TypeError("complex series values cannot be visualized")
-        normalized = np.array(
-            source,
+        normalized = np.empty(
+            (stop - start, len(feature_indices)),
             dtype=np.float64,
-            copy=True,
             order="C",
         )
+        for column, feature_index in enumerate(feature_indices):
+            normalized[:, column] = source[:, feature_index]
         _normalize_inplace(normalized, normalization, scope)
         sampled = _downsample_indices(normalized, max_points)
         absolute = sampled + start
@@ -330,6 +360,7 @@ class SeriesDataView:
             "window": {"start": start, "stop": stop, "points": stop - start},
             "normalization": normalization,
             "scope": scope,
+            "geometry": "polyline-2d-v1",
             "sampled_points": len(sampled),
             "indices": [int(value) for value in absolute],
             "timestamps": [str(int(value)) for value in timestamp_values],

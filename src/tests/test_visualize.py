@@ -15,8 +15,9 @@ import pandas as pd
 import pytest
 
 import agentad.visualize._tree as tree_module
+import agentad.visualize._view as view_module
 from agentad.series import SeriesData, write
-from agentad.visualize import NORMALIZATIONS, WebUI, normalize
+from agentad.visualize import CSV_FORMAT, NORMALIZATIONS, WebUI, normalize, read_csv
 from agentad.visualize.__main__ import _relative_to_root
 from agentad.visualize._tree import PackageTree
 from agentad.visualize._view import (
@@ -80,8 +81,8 @@ def running_server(app: WebUI) -> Iterator[tuple[str, int]]:
 
 
 def test_overview_reports_collection_facts() -> None:
-    overview = build_view().overview("标题")
-    assert overview["title"] == "标题"
+    overview = build_view().overview("Academic workspace")
+    assert overview["title"] == "Academic workspace"
     assert overview["series_count"] == 2
     assert overview["point_count"] == 10
     assert overview["feature_count"] == 2
@@ -163,7 +164,7 @@ def test_view_payloads_do_not_expose_mutable_internal_metadata() -> None:
     payload = view.data(series_index=0)
     payload["series"]["meta"]["nested"]["value"] = 2
     assert view.overview("copy")["features"][0]["metadata"]["unit"] == "u-0"
-    assert view.overview("copy")["normalizations"][0]["name"] == "原始值"
+    assert view.overview("copy")["normalizations"][0]["name"] == "Raw values"
     assert collection[0].meta["nested"]["value"] == 1
 
 
@@ -258,6 +259,13 @@ def test_data_validates_inputs_before_work() -> None:
         view.data(series_index=0, feature_indices=[])
 
 
+def test_data_bounds_total_response_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    view = build_view()
+    monkeypatch.setattr(view_module, "MAX_RESPONSE_VALUES", 8)
+    with pytest.raises(ValueError, match="too many values"):
+        view.data(series_index=0, feature_indices=[0, 1], max_points=6)
+
+
 @pytest.mark.parametrize(
     "method",
     ["zscore", "minmax", "robust", "maxabs", "l1", "l2"],
@@ -328,6 +336,21 @@ def test_http_server_serves_assets_api_errors_and_security_headers() -> None:
         assert response.getheader("X-Content-Type-Options") == "nosniff"
         assert response.getheader("Content-Security-Policy")
 
+        connection.request("GET", "/")
+        response = connection.getresponse()
+        page = response.read()
+        etag = response.getheader("ETag")
+        assert response.status == 200
+        assert b'<html lang="en">' in page
+        assert b'src="/app.js"' in page
+        assert response.getheader("Cache-Control") == "no-cache"
+        assert etag
+
+        connection.request("GET", "/", headers={"If-None-Match": etag})
+        response = connection.getresponse()
+        assert response.status == 304
+        assert response.read() == b""
+
         connection.request("GET", "/core.js")
         response = connection.getresponse()
         assert response.status == 200
@@ -343,6 +366,16 @@ def test_http_server_serves_assets_api_errors_and_security_headers() -> None:
         assert response.status == 405
         assert response.getheader("Allow") == "GET"
         assert response.read() == b""
+
+        connection.request("POST", "/api/data?series=0", body=b"")
+        response = connection.getresponse()
+        assert response.status == 405
+        assert json.loads(response.read()) == {"error": "method not allowed"}
+
+        connection.request("GET", "/api/items?query=" + "x" * 9_000)
+        response = connection.getresponse()
+        assert response.status == 414
+        assert json.loads(response.read()) == {"error": "request target is too long"}
         connection.close()
 
 
@@ -350,6 +383,10 @@ def test_webui_validates_server_configuration() -> None:
     app = WebUI(build_collection())
     with pytest.raises(ValueError, match="title"):
         WebUI(build_collection(), title=" ")
+    with pytest.raises(TypeError, match="max_csv_bytes"):
+        WebUI(build_collection(), max_csv_bytes=True)
+    with pytest.raises(ValueError, match="max_csv_bytes"):
+        WebUI(build_collection(), max_csv_bytes=0)
     with pytest.raises(ValueError, match="path requires"):
         WebUI(path="sample.zarr.zip")
     with pytest.raises(TypeError, match="port"):
@@ -368,6 +405,7 @@ def test_package_tree_is_rooted_bounded_and_marks_both_package_forms(
     unpacked.mkdir()
     (unpacked / tree_module.FILE_META).write_bytes(b"marker")
     (root / "packed.zarr.zip").write_bytes(b"marker")
+    (root / "table.csv").write_text("marker", encoding="utf-8")
     (root / "ordinary.txt").write_text("plain", encoding="utf-8")
     (root / ".hidden.zarr.zip").write_bytes(b"marker")
     outside = tmp_path / "outside"
@@ -381,9 +419,12 @@ def test_package_tree_is_rooted_bounded_and_marks_both_package_forms(
     assert records["unpacked"]["dir"] and records["unpacked"]["loadable"]
     assert not records["packed.zarr.zip"]["dir"]
     assert records["packed.zarr.zip"]["loadable"]
+    assert records["table.csv"]["loadable"]
+    assert records["table.csv"]["format"] == "csv"
     assert not records["ordinary.txt"]["loadable"]
     assert tree.is_loadable("unpacked")
     assert tree.is_loadable("packed.zarr.zip")
+    assert tree.is_loadable("table.csv")
     with pytest.raises(ValueError, match="must not contain"):
         tree.resolve("../outside")
     with pytest.raises(ValueError, match="escapes"):
@@ -440,3 +481,102 @@ def test_browser_mode_lists_and_opens_a_package_over_http(tmp_path: Path) -> Non
         assert response.status == 200
         assert json.loads(response.read())["items"][0]["id"] == "s-0"
         connection.close()
+
+
+def test_csv_contract_loads_series_features_labels_metadata_and_datetimes(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "samples.csv"
+    source.write_text(
+        "series_id,timestamp,feature.temperature,feature.pressure,"
+        "label.is_anomaly,meta.split\n"
+        "alpha,2026-01-01T00:00:00Z,1.0,10.0,0,train\n"
+        "alpha,2026-01-01T00:01:00Z,2.0,11.0,1,train\n"
+        "beta,2026-01-02T00:00:00Z,3.0,12.0,0,test\n",
+        encoding="utf-8",
+    )
+
+    collection = read_csv(source)
+
+    assert collection.ids == ("alpha", "beta")
+    np.testing.assert_array_equal(collection.offsets, [0, 2, 3])
+    np.testing.assert_array_equal(collection.data, [[1.0, 10.0], [2.0, 11.0], [3.0, 12.0]])
+    assert collection.features.index.tolist() == ["temperature", "pressure"]
+    assert collection.labels.columns.tolist() == ["is_anomaly"]
+    assert collection[0].meta["split"] == "train"
+    assert collection[0].meta["timestamp_encoding"] == {
+        "original_values": "datetime",
+        "source_timezone": "UTC",
+    }
+    assert collection.manifest["format"] == CSV_FORMAT
+    assert SeriesDataView(collection).data(series_index=0)["timestamp_labels"] == [
+        "2026-01-01 00:00:00+00:00",
+        "2026-01-01 00:01:00+00:00",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        ("series_id,timestamp,value\na,0,1\n", "outside the contract"),
+        (
+            "series_id,timestamp,feature.value\na,0,1\nb,1,2\na,2,3\n",
+            "contiguous block",
+        ),
+        (
+            "series_id,timestamp,feature.value,meta.split\na,0,1,train\na,1,2,test\n",
+            "not constant",
+        ),
+        (
+            "series_id,timestamp,feature.value\na,9223372036854775808,1\n",
+            "signed int64 range",
+        ),
+        (
+            "series_id,timestamp,feature.value\na,0,1\na,2026-01-01T00:00:00Z,2\n",
+            "one timestamp encoding",
+        ),
+        (
+            "series_id,timestamp,feature.value\na,1.5,1\n",
+            "exact signed int64",
+        ),
+    ],
+)
+def test_csv_contract_rejects_ambiguous_or_unsafe_inputs(
+    tmp_path: Path,
+    content: str,
+    message: str,
+) -> None:
+    source = tmp_path / "invalid.csv"
+    source.write_text(content, encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        read_csv(source)
+
+
+def test_csv_size_limit_and_http_open(tmp_path: Path) -> None:
+    source = tmp_path / "samples.csv"
+    source.write_text(
+        "series_id,timestamp,feature.value\na,0,1\na,1,2\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="configured limit"):
+        read_csv(source, max_bytes=8)
+
+    app = WebUI(root=tmp_path)
+    with running_server(app) as (host, port):
+        connection = http.client.HTTPConnection(host, port, timeout=5)
+        connection.request("GET", f"/api/open?path={quote(source.name)}")
+        response = connection.getresponse()
+        payload = json.loads(response.read())
+        assert response.status == 200
+        assert payload["series_count"] == 1
+        assert payload["manifest"]["format"] == CSV_FORMAT
+        connection.close()
+
+
+def test_csv_preserves_na_like_series_ids(tmp_path: Path) -> None:
+    source = tmp_path / "na-id.csv"
+    source.write_text(
+        "series_id,timestamp,feature.value\nNA,0,1\nNA,1,2\n",
+        encoding="utf-8",
+    )
+    assert read_csv(source).ids == ("NA",)

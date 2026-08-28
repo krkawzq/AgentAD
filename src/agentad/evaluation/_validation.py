@@ -7,7 +7,14 @@ from typing import Any
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
-__all__ = ["binary_array", "score_array", "validate_pair", "threshold_grid"]
+__all__ = [
+    "binary_array",
+    "non_negative_integer",
+    "score_array",
+    "threshold_count",
+    "threshold_grid",
+    "validate_pair",
+]
 
 
 def _one_dimensional(values: ArrayLike, *, name: str, dtype: Any) -> np.ndarray:
@@ -72,10 +79,24 @@ def validate_pair(
     return labels, scores
 
 
+def non_negative_integer(value: int, *, name: str) -> int:
+    """Validate a non-negative integer parameter without accepting booleans."""
+    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+        raise TypeError(f"{name} must be an integer")
+    if value < 0:
+        raise ValueError(f"{name} must be non-negative")
+    return int(value)
+
+
+def threshold_count(value: int, *, name: str = "threshold_count") -> int:
+    """Validate the number of samples used by a threshold grid."""
+    count = non_negative_integer(value, name=name)
+    if count < 2:
+        raise ValueError(f"{name} must be at least 2")
+    return count
+
+
 def threshold_grid(scores: NDArray[np.float64], count: int) -> NDArray[np.float64]:
     """TSB-AD's deterministic evenly spaced oracle-threshold grid."""
-    if isinstance(count, bool) or not isinstance(count, (int, np.integer)):
-        raise TypeError("threshold_count must be an integer")
-    if count < 2:
-        raise ValueError("threshold_count must be at least 2")
-    return np.linspace(float(scores.min()), float(scores.max()), int(count))
+    count = threshold_count(count)
+    return np.linspace(float(scores.min()), float(scores.max()), count)

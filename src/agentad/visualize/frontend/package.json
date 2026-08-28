@@ -1,0 +1,19 @@
+{
+  "name": "agentad-visualizer-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "test": "node --test ../../../tests/test_visualize_core.mjs"
+  },
+  "dependencies": {
+    "lucide-react": "1.35.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.1.1",
+    "vite": "8.2.2"
+  }
+}
