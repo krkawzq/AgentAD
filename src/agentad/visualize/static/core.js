@@ -5,10 +5,11 @@ export const TRACK_HEIGHT = 96;
 export const CHART_VERTICAL_PADDING = 36;
 export const DEFAULT_VIEW_OPTIONS = Object.freeze({
   normalization: "none",
-  scope: "feature",
-  labelIndex: null,
+  showLabels: false,
   mode: "pan",
   layout: "stacked",
+});
+export const DEFAULT_TAB_PREFERENCES = Object.freeze({
   transform: Object.freeze({
     rotation: 0,
     scaleX: 1,
@@ -16,10 +17,6 @@ export const DEFAULT_VIEW_OPTIONS = Object.freeze({
     flipX: false,
     flipY: false,
   }),
-});
-export const DEFAULT_TAB_PREFERENCES = Object.freeze({
-  ...DEFAULT_VIEW_OPTIONS,
-  labelName: null,
   inspectorOpen: false,
   inspectorWidth: 320,
 });
@@ -43,16 +40,6 @@ export function parseTabPreferences(value) {
   const transform =
     source.transform && typeof source.transform === "object" ? source.transform : {};
   return {
-    normalization:
-      typeof source.normalization === "string" && source.normalization
-        ? source.normalization
-        : DEFAULT_TAB_PREFERENCES.normalization,
-    scope: source.scope === "global" ? "global" : DEFAULT_TAB_PREFERENCES.scope,
-    labelIndex: null,
-    labelName:
-      typeof source.labelName === "string" && source.labelName ? source.labelName : null,
-    mode: source.mode === "select" ? "select" : DEFAULT_TAB_PREFERENCES.mode,
-    layout: source.layout === "overlay" ? "overlay" : DEFAULT_TAB_PREFERENCES.layout,
     transform: {
       rotation: clampFinite(transform.rotation, -180, 180, 0),
       scaleX: clampFinite(transform.scaleX, 0.25, 2, 1),
@@ -67,6 +54,31 @@ export function parseTabPreferences(value) {
 
 export function serializeTabPreferences(preferences) {
   return JSON.stringify({ version: 1, ...parseTabPreferences(preferences) });
+}
+
+export function parseGlobalToolbarState(value) {
+  let source = value;
+  if (typeof source === "string") {
+    try {
+      source = JSON.parse(source);
+    } catch {
+      source = null;
+    }
+  }
+  if (!source || typeof source !== "object" || Array.isArray(source)) source = {};
+  return {
+    normalization:
+      typeof source.normalization === "string" && source.normalization
+        ? source.normalization
+        : DEFAULT_VIEW_OPTIONS.normalization,
+    showLabels: source.showLabels === true,
+    mode: source.mode === "select" ? "select" : DEFAULT_VIEW_OPTIONS.mode,
+    layout: source.layout === "overlay" ? "overlay" : DEFAULT_VIEW_OPTIONS.layout,
+  };
+}
+
+export function serializeGlobalToolbarState(state) {
+  return JSON.stringify({ version: 1, ...parseGlobalToolbarState(state) });
 }
 
 export function normalizeWheelDelta(deltaY, deltaX, deltaMode = 0) {

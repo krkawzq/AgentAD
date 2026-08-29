@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -9,22 +11,42 @@ from agentad.methods import (  # noqa: E402
     AERCAConfig,
     AxonAD,
     AxonADConfig,
+    BASELINES,
     CARLA,
     CARLAConfig,
     CARLAPretextLightningModule,
+    ClusterLocalOutlierFactorConfig,
+    ConnectivityOutlierFactorConfig,
+    CopulaConfig,
     CrossAD,
     CrossADConfig,
     DADA,
     DADAConfig,
+    ExtendedIsolationForestConfig,
+    FourierConfig,
+    HistogramConfig,
+    IsolationForestConfig,
     KANAD,
     KANADConfig,
+    KMeansDistanceConfig,
     Left,
     LeftConfig,
+    LocalOutlierFactorConfig,
+    LocalPolynomialConfig,
     MMPADConfig,
+    MatrixProfileConfig,
+    MinimumCovarianceDeterminantConfig,
+    NearestNeighborsConfig,
+    OneClassSVMConfig,
     PaAno,
     PaAnoConfig,
+    PrincipalComponentConfig,
+    RobustPCAConfig,
     ScatterAD,
     ScatterADConfig,
+    SpectralResidualConfig,
+    StatisticalFeaturesConfig,
+    StreamingMatrixProfileConfig,
     TimeRCD,
     TimeRCDConfig,
     TSPulseConfig,
@@ -33,10 +55,30 @@ from agentad.methods import (  # noqa: E402
     XLSTMAD,
     XLSTMADConfig,
     build_reference,
+    cluster_local_outlier_factor_score,
+    connectivity_outlier_factor_score,
+    copula_score,
+    extended_isolation_forest_score,
+    fourier_score,
+    histogram_score,
     inject_anomalies,
+    isolation_forest_score,
+    kmeans_distance_score,
+    local_outlier_factor_score,
+    local_polynomial_score,
+    matrix_profile_score,
+    minimum_covariance_determinant_score,
     mmpad_score,
+    nearest_neighbors_score,
+    one_class_svm_score,
+    principal_component_score,
+    robust_pca_score,
+    spectral_residual_score,
+    statistical_features_score,
+    streaming_matrix_profile_score,
 )
 from agentad.methods.MMPAD.algorithm import _resolved_length  # noqa: E402
+from agentad.methods.TimeRCD import load_official_checkpoint  # noqa: E402
 from agentad.methods._utils import (  # noqa: E402
     evaluation_mode,
     overlap_average,
@@ -92,6 +134,27 @@ def test_original_config_factories_cover_published_variants():
     assert set(XLSTMADConfig.original_configs(input_features=2)) == {
         "default",
         "example",
+    }
+    assert set(BASELINES) == {
+        "ClusterLocalOutlierFactor",
+        "ConnectivityOutlierFactor",
+        "Copula",
+        "ExtendedIsolationForest",
+        "Fourier",
+        "Histogram",
+        "IsolationForest",
+        "KMeansDistance",
+        "LocalOutlierFactor",
+        "LocalPolynomial",
+        "MatrixProfile",
+        "MinimumCovarianceDeterminant",
+        "NearestNeighbors",
+        "OneClassSVM",
+        "PrincipalComponent",
+        "RobustPCA",
+        "SpectralResidual",
+        "StatisticalFeatures",
+        "StreamingMatrixProfile",
     }
 
 
@@ -180,6 +243,10 @@ def test_aerca_losses_scores_causality_and_root_causes():
 
 
 def test_carla_two_stage_losses_neighbor_mining_and_scores():
+    # The exact-index assertions below need a seeded projection space:
+    # unseeded inits occasionally collapse every pairwise similarity onto
+    # the same value, where chunked and dense topk break ties differently.
+    torch.manual_seed(20)
     config = CARLAConfig(
         input_features=2,
         window_length=8,
@@ -618,3 +685,430 @@ def test_scatterad_losses_target_update_and_score():
 
     model.eval()
     assert_finite_shape(model.score(series), (2, 10))
+
+
+PRETRAINED_DIR = Path(__file__).resolve().parents[2] / "pretrained"
+
+
+@pytest.mark.skipif(
+    not (PRETRAINED_DIR / "dada" / "pytorch_model.bin").exists(),
+    reason="official checkpoints not downloaded (scripts/download/download_pretrained.py)",
+)
+def test_dada_and_time_rcd_official_checkpoints_load_and_score():
+    dada = DADA.from_official_checkpoint(PRETRAINED_DIR / "dada" / "pytorch_model.bin")
+    generator = torch.Generator().manual_seed(7)
+    assert_finite_shape(
+        dada.score(torch.randn(1, 100, 3), generator=generator), (1, 100)
+    )
+
+    uni = load_official_checkpoint(
+        PRETRAINED_DIR / "time_rcd" / "uni" / "pretrain_checkpoint_best_uni.pth"
+    )
+    assert_finite_shape(uni.score(torch.randn(1, 320, 1)), (1, 320))
+
+    multi = load_official_checkpoint(
+        PRETRAINED_DIR / "time_rcd" / "multi" / "pretrain_checkpoint_best_multi.pth",
+        input_features=8,
+    )
+    assert_finite_shape(multi.score(torch.randn(1, 320, 8)), (1, 320))
+
+
+@pytest.mark.skipif(
+    not (PRETRAINED_DIR / "tspulse" / "model.safetensors").exists(),
+    reason="official checkpoints not downloaded (scripts/download/download_pretrained.py)",
+)
+def test_tspulse_zero_shot_official_snapshot_scores():
+    pytest.importorskip("tsfm_public")
+    config = TSPulseConfig(input_features=1, context_length=512, patch_length=8)
+    zero_shot = TSPulseZeroShot.from_pretrained(
+        config, model_name_or_path=str(PRETRAINED_DIR / "tspulse")
+    )
+    assert_finite_shape(zero_shot.score(torch.randn(1, 600, 1)), (1, 600))
+
+
+def test_spectral_residual_flags_spike_and_zeroes_constant_series():
+    torch.manual_seed(0)
+    t = torch.arange(256, dtype=torch.float32)
+    values = torch.sin(t * 0.15) + 0.05 * torch.sin(t * 1.3) + 0.02 * torch.randn(256)
+    values[120:124] += 3.0
+    scores = spectral_residual_score(values[None, :, None], SpectralResidualConfig())
+    assert_finite_shape(scores, (1, 256))
+    assert scores[0, 120:124].max() > scores[0, 20:100].max()
+    constant = torch.full((1, 64, 1), 3.0)
+    assert torch.equal(
+        spectral_residual_score(constant, SpectralResidualConfig()),
+        torch.zeros(1, 64),
+    )
+
+
+def test_fourier_flags_injected_region_with_zscored_magnitude():
+    t = torch.arange(300, dtype=torch.float32)
+    series = torch.sin(t * 0.2)[None, :, None].clone()
+    series[:, 150:160, 0] += 4.0
+    scores = fourier_score(series, FourierConfig())
+    assert_finite_shape(scores, (1, 300))
+    # Region scores are mean |z| of selected candidates, so any formed
+    # region exceeds the detection threshold.
+    assert scores[:, 150:160].max() > FourierConfig().outlier_threshold
+    assert scores[:, 150:160].max() > scores[:, 20:100].max()
+
+
+def test_matrix_profile_matches_bruteforce_reference():
+    torch.manual_seed(3)
+    series = torch.randn(1, 120, 1)
+    window, zone = 12, 3
+    scores = matrix_profile_score(series, MatrixProfileConfig(window=window))
+
+    values = series[0, :, 0]
+    count = values.numel() - window + 1
+    raw = values.unfold(0, window, 1)
+    normalized = (raw - raw.mean(1, keepdim=True)) / raw.std(
+        1, keepdim=True, correction=0
+    ).clamp_min(1e-12)
+    profile = []
+    for i in range(count):
+        best = torch.inf
+        for j in range(count):
+            if abs(i - j) <= zone:
+                continue
+            correlation = float(normalized[i] @ normalized[j]) / window
+            best = min(best, (2 * window * (1 - correlation)) ** 0.5)
+        profile.append(best)
+    profile = torch.tensor(profile)
+    expected = torch.full((values.numel(),), float(profile.min()))
+    expected[window // 2 : window // 2 + count] = profile
+    assert torch.allclose(scores[0], expected, atol=1e-4)
+
+
+def test_streaming_matrix_profile_scores_only_against_the_past():
+    torch.manual_seed(4)
+    pattern = torch.randn(20)
+    values = torch.cat(
+        (
+            torch.randn(60),
+            pattern,
+            torch.randn(40),
+            pattern,
+            torch.randn(30),
+        )
+    )
+    series = values[None, :, None]
+    config = StreamingMatrixProfileConfig(warmup=60, window=20)
+    scores = streaming_matrix_profile_score(series, config)
+    assert_finite_shape(scores, (1, 170))
+    # Window starts below the warmup are zeroed and centered padding maps
+    # point t to window start t - window//2, so points up to 69 stay zero.
+    assert scores[:, :70].abs().max() == 0
+    # The repeated pattern finds its earlier twin as a left neighbor...
+    assert scores[0, 130] < 0.5
+    # ...while the novel tail has no close past match.
+    assert scores[0, 150] > scores[0, 130]
+
+
+def test_local_polynomial_scores_context_residual_and_zeroes_initial_segment():
+    t = torch.arange(400, dtype=torch.float32)
+    series = torch.sin(t * 0.1)[None, :, None].clone()
+    series[:, 200:206, 0] += 3.0
+    config = LocalPolynomialConfig(degree=2, window=63)
+    scores = local_polynomial_score(series, config)
+    assert_finite_shape(scores, (1, 400))
+    # initial = min(500, 40) -> first scored window starts at 63.
+    assert scores[:, :63].abs().max() == 0
+    assert scores[:, 200:206].max() > scores[:, 100:150].max()
+
+
+def test_robust_pca_recovers_sparse_corruption_of_low_rank_series():
+    torch.manual_seed(5)
+    low_rank = torch.randn(200, 1) @ torch.randn(1, 3)
+    matrix = low_rank + 0.01 * torch.randn(200, 3)
+    matrix[150:154] += 5.0
+    scores = robust_pca_score(matrix[None], RobustPCAConfig())
+    assert_finite_shape(scores, (1, 200))
+    assert scores[0, 150:154].min() > scores[0, :150].max()
+
+
+def test_statistical_features_flags_anomaly_and_zeroes_constant_series():
+    torch.manual_seed(6)
+    t = torch.arange(600, dtype=torch.float32)
+    values = torch.sin(t * 0.05) + 0.05 * torch.randn(600)
+    values[300:310] += 2.0
+    scores = statistical_features_score(values[None, :, None], StatisticalFeaturesConfig())
+    assert_finite_shape(scores, (1, 600))
+    assert scores[0, 300:310].max() > scores[0, 100:200].max()
+    constant = torch.full((1, 100, 1), 2.0)
+    assert torch.equal(
+        statistical_features_score(constant, StatisticalFeaturesConfig()),
+        torch.zeros(1, 100),
+    )
+
+
+def test_nearest_neighbors_matches_dense_reference_and_flags_point_outlier():
+    torch.manual_seed(7)
+    series = torch.randn(1, 60, 1)
+    config = NearestNeighborsConfig(window=1, neighbors=4, method="mean")
+    scores = nearest_neighbors_score(series, config)
+
+    values = series[0, :, 0]
+    standardized = (values - values.mean()) / values.std(correction=0)
+    distance = torch.cdist(standardized[:, None], standardized[:, None])
+    distance.fill_diagonal_(torch.inf)
+    nearest = distance.sort(dim=1).values[:, :4]
+    assert torch.allclose(scores[0], nearest.mean(dim=1), atol=1e-5)
+
+    corrupted = series.clone()
+    corrupted[0, 30, 0] += 10.0
+    outlier_scores = nearest_neighbors_score(
+        corrupted, NearestNeighborsConfig(window=1, neighbors=4)
+    )
+    assert outlier_scores[0, 30] == outlier_scores.max()
+
+
+def test_local_outlier_factor_matches_manual_reference():
+    torch.manual_seed(8)
+    series = torch.randn(1, 40, 1)
+    config = LocalOutlierFactorConfig(window=1, neighbors=3, normalize=False)
+    scores = local_outlier_factor_score(series, config)
+
+    values = series[0, :, 0]
+    count = values.numel()
+    distance = torch.cdist(values[:, None], values[:, None])
+    distance.fill_diagonal_(torch.inf)
+    neighbors = distance.argsort(dim=1)[:, :3]
+    k_distance = distance.gather(1, neighbors)[:, -1]
+    lrd = []
+    for i in range(count):
+        reach = sum(
+            max(float(distance[i, j]), float(k_distance[j]))
+            for j in neighbors[i].tolist()
+        ) / 3
+        lrd.append(1.0 / (reach + 1e-10))
+    lrd = torch.tensor(lrd)
+    expected = torch.tensor(
+        [lrd[neighbors[i]].mean() / lrd[i] for i in range(count)]
+    )
+    assert torch.allclose(scores[0], expected, atol=1e-4)
+
+
+def test_connectivity_outlier_factor_matches_manual_reference():
+    torch.manual_seed(9)
+    series = torch.randn(1, 30, 2)
+    config = ConnectivityOutlierFactorConfig(neighbors=4)
+    scores = connectivity_outlier_factor_score(series, config)
+
+    values = series[0]
+    count, k = values.shape[0], 4
+    distance = torch.cdist(values, values)
+    path = distance.argsort(dim=1)
+    chaining = []
+    for i in range(count):
+        costs = []
+        for j in range(k):
+            costs.append(
+                min(
+                    float(distance[path[i, j + 1], path[i, m]])
+                    for m in range(j + 1)
+                )
+            )
+        weight = sum(
+            2 * (k + 1 - (h + 1)) / ((k + 1) * k) * cost
+            for h, cost in enumerate(costs)
+        )
+        chaining.append(weight)
+    expected = torch.tensor(
+        [
+            chaining[i] * k / sum(chaining[j] for j in path[i, 1 : k + 1])
+            for i in range(count)
+        ]
+    )
+    assert torch.allclose(scores[0], expected, atol=1e-4)
+
+
+def test_copula_matches_empirical_copula_reference():
+    torch.manual_seed(10)
+    series = torch.randn(1, 50, 2) * torch.tensor([1.0, 3.0]) + torch.tensor(
+        [0.5, -1.0]
+    )
+    scores = copula_score(series, CopulaConfig(normalize=False))
+
+    values = series[0].to(torch.float64)
+    count = values.shape[0]
+
+    def ecdf(column):
+        order = column.argsort()
+        probabilities = torch.arange(1, count + 1, dtype=torch.float64) / count
+        sorted_column = column[order]
+        for i in range(count - 2, -1, -1):
+            if sorted_column[i] == sorted_column[i + 1]:
+                probabilities[i] = probabilities[i + 1]
+        output = torch.empty_like(probabilities)
+        output[order] = probabilities
+        return output
+
+    columns = [ecdf(values[:, c]) for c in range(values.shape[1])]
+    left = -torch.log(torch.stack(columns, dim=1))
+    right = -torch.log(torch.stack([ecdf(-values[:, c]) for c in range(values.shape[1])], dim=1))
+    centered = values - values.mean(0)
+    moment2 = centered.square().mean(0)
+    moment3 = centered.pow(3).mean(0)
+    skewness = torch.where(
+        moment2 > 0, moment3 / moment2.pow(1.5), torch.zeros_like(moment3)
+    ).sign()
+    u_skew = -left * (skewness - 1).sign() + right * (skewness + 1).sign()
+    expected = torch.maximum(u_skew, (left + right) / 2).sum(dim=1)
+    assert torch.allclose(scores[0], expected.to(scores.dtype), atol=1e-4)
+
+
+def test_histogram_matches_manual_density_reference():
+    torch.manual_seed(11)
+    series = torch.randn(1, 80, 1)
+    config = HistogramConfig(window=1, bins=5)
+    scores = histogram_score(series, config)
+
+    values = series[0, :, 0]
+    standardized = (values - values.mean()) / values.std(correction=0)
+    count = standardized.numel()
+    bins, alpha = config.bins, config.alpha
+    edges = torch.linspace(standardized.min(), standardized.max(), bins + 1)
+    widths = edges.diff()
+
+    # Values on the lower edge fall into bin 0, on the upper edge into the
+    # last bin, interior values into the bin below the edge they hit.
+    assignment = []
+    for value in standardized:
+        index = int(torch.searchsorted(edges, value, right=False))
+        assignment.append(min(max(index - 1, 0), bins - 1))
+    counts = torch.zeros(bins)
+    for slot in assignment:
+        counts[slot] += 1
+    density = counts / (count * widths)
+    bin_scores = torch.log2(density + alpha)
+    expected = torch.tensor([-bin_scores[slot] for slot in assignment])
+    assert torch.allclose(scores[0], expected, atol=1e-5)
+
+
+def test_cluster_local_outlier_factor_flags_cluster_outliers_and_zeroes_constant_series():
+    torch.manual_seed(12)
+    t = torch.arange(240, dtype=torch.float32)
+    values = torch.sin(t * 0.05) + 0.05 * torch.randn(240)
+    values[200:210] += 8.0
+    series = values[None, :, None]
+    scores = cluster_local_outlier_factor_score(
+        series, ClusterLocalOutlierFactorConfig()
+    )
+    assert_finite_shape(scores, (1, 240))
+    # The distant block forms a small cluster scored by its distance to the
+    # nearest large-cluster center.
+    assert scores[0, 200:210].min() > scores[0, :100].max()
+    constant = torch.full((1, 100, 1), 2.0)
+    assert torch.equal(
+        cluster_local_outlier_factor_score(
+            constant, ClusterLocalOutlierFactorConfig()
+        ),
+        torch.zeros(1, 100),
+    )
+
+
+def test_isolation_forest_flags_windowed_outliers():
+    torch.manual_seed(13)
+    t = torch.arange(300, dtype=torch.float32)
+    values = torch.sin(t * 0.08) + 0.05 * torch.randn(300)
+    values[150:160] += 6.0
+    series = values[None, :, None]
+    config = IsolationForestConfig(window=8, trees=50, sample_size=128, seed=3)
+    scores = isolation_forest_score(series, config)
+    assert_finite_shape(scores, (1, 300))
+    # Windows covering the spike isolate near the root and score close to one.
+    assert scores[0, 150:160].max() > scores[0, 20:100].max()
+
+
+def test_extended_isolation_forest_flags_point_outliers():
+    torch.manual_seed(14)
+    t = torch.arange(300, dtype=torch.float32)
+    values = torch.sin(t * 0.08) + 0.05 * torch.randn(300)
+    values[150:160] += 6.0
+    series = values[None, :, None]
+    config = ExtendedIsolationForestConfig(trees=50, sample_size=128, seed=3)
+    scores = extended_isolation_forest_score(series, config)
+    assert_finite_shape(scores, (1, 300))
+    assert scores[0, 150:160].max() > scores[0, 20:100].max()
+
+
+def test_kmeans_distance_flags_windowed_outliers_and_matches_mean_reference():
+    torch.manual_seed(15)
+    t = torch.arange(240, dtype=torch.float32)
+    values = torch.sin(t * 0.01) + 0.001 * torch.randn(240)
+    values[200:204] += 8.0
+    series = values[None, :, None]
+    config = KMeansDistanceConfig(window=8, clusters=3, seed=1)
+    scores = kmeans_distance_score(series, config)
+    assert_finite_shape(scores, (1, 240))
+    # Windows covering the spike sit far from every ramp-shaped centroid.
+    assert scores[0, 200:204].max() > scores[0, 20:100].max()
+    # Window 1 keeps raw values and a single cluster converges to the mean,
+    # so the score reduces to the deviation from the mean.
+    point = values.clone()
+    point[100] += 5.0
+    reference = kmeans_distance_score(
+        point[None, :, None], KMeansDistanceConfig(window=1, clusters=1, seed=1)
+    )
+    assert torch.allclose(reference[0], (point - point.mean()).abs(), atol=1e-5)
+
+
+def test_minimum_covariance_determinant_flags_direction_outliers():
+    torch.manual_seed(16)
+    base = torch.randn(200, 1)
+    matrix = torch.cat(
+        (base, base + 0.05 * torch.randn(200, 1), base + 0.05 * torch.randn(200, 1)),
+        dim=1,
+    )
+    matrix[150:154, 0] += 8.0
+    scores = minimum_covariance_determinant_score(
+        matrix[None], MinimumCovarianceDeterminantConfig()
+    )
+    assert_finite_shape(scores, (1, 200))
+    # Rows spiking a single channel point away from the correlated cloud.
+    assert scores[0, 150:154].min() > scores[0, :150].max()
+    constant = torch.full((1, 100, 3), 2.0)
+    assert torch.equal(
+        minimum_covariance_determinant_score(
+            constant, MinimumCovarianceDeterminantConfig()
+        ),
+        torch.zeros(1, 100),
+    )
+
+
+def test_one_class_svm_flags_boundary_violating_windows():
+    torch.manual_seed(17)
+    t = torch.arange(300, dtype=torch.float32)
+    values = torch.sin(t * 0.08) + 0.05 * torch.randn(300)
+    values[150:160] += 6.0
+    series = values[None, :, None]
+    config = OneClassSVMConfig(window=8, seed=1)
+    scores = one_class_svm_score(series, config)
+    assert_finite_shape(scores, (1, 300))
+    # Windows beyond the fitted boundary take a positive margin.
+    assert scores[0, 150:160].max() > 0
+    assert scores[0, 150:160].max() > scores[0, 20:100].max()
+
+
+def test_principal_component_matches_manual_reference():
+    torch.manual_seed(18)
+    series = torch.randn(1, 60, 2)
+    config = PrincipalComponentConfig(window=1, normalize=False)
+    scores = principal_component_score(series, config)
+
+    values = series[0]
+    mean = values.mean(dim=0)
+    scale = values.std(dim=0, correction=0)
+    scale = torch.where(scale > 0, scale, torch.ones_like(scale))
+    standardized = (values - mean) / scale
+    keep = standardized.abs().any(dim=0)
+    standardized = standardized[:, keep]
+    centered = standardized - standardized.mean(dim=0)
+    _, _, vectors = torch.linalg.svd(centered, full_matrices=False)
+    variance = centered.square().sum(dim=0) / (values.shape[0] - 1)
+    shares = (variance / variance.sum()).clamp_min(1e-12)
+    # Every fitted eigenvector contributes its distance weighted by the
+    # inverse explained-variance share.
+    expected = (torch.cdist(standardized, vectors) / shares).sum(dim=1)
+    assert torch.allclose(scores[0], expected, atol=1e-5)

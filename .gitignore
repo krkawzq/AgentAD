@@ -34,3 +34,6 @@ forks/
 data/
 logs/
 tmp/
+
+# Official pretrained checkpoints
+pretrained/

@@ -1,7 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  horizontalListSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable";
+import Tabs from "@rc-component/tabs";
+import {
   BarChart3,
   CircleHelp,
+  GripVertical,
   Hand,
   LoaderCircle,
   Maximize2,
@@ -10,15 +27,19 @@ import {
   PanelRight,
   Plus,
   Rows3,
+  Tag,
   X,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
 
 import {
+  DEFAULT_TAB_PREFERENCES,
   DEFAULT_VIEW_OPTIONS,
   clampPanelWidth,
+  parseGlobalToolbarState,
   parseTabPreferences,
+  serializeGlobalToolbarState,
   serializeTabPreferences,
   zoomWindow,
 } from "../../static/core.js";
@@ -35,6 +56,7 @@ const INSPECTOR_DEFAULT_WIDTH = 320;
 const INSPECTOR_MIN_WIDTH = 260;
 const INSPECTOR_MAX_WIDTH = 560;
 const LAST_TAB_PREFERENCES_KEY = "agentad-visualizer:last-tab-preferences";
+const GLOBAL_TOOLBAR_STATE_KEY = "agentad-visualizer:global-toolbar-state";
 
 const TAB_FIELDS = [
   "items",
@@ -46,7 +68,7 @@ const TAB_FIELDS = [
   "seriesIndex",
   "seriesPoints",
   "selectedFeatures",
-  "viewOptions",
+  "transform",
   "viewport",
   "committedViewport",
   "data",
@@ -69,15 +91,36 @@ function readLastTabPreferences() {
   }
 }
 
+function useGlobalToolbarState() {
+  const [state, setState] = useState(() => {
+    try {
+      return parseGlobalToolbarState(
+        window.localStorage.getItem(GLOBAL_TOOLBAR_STATE_KEY),
+      );
+    } catch {
+      return parseGlobalToolbarState(null);
+    }
+  });
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        window.localStorage.setItem(
+          GLOBAL_TOOLBAR_STATE_KEY,
+          serializeGlobalToolbarState(state),
+        );
+      } catch {
+        // Storage can be unavailable in privacy-restricted browser contexts.
+      }
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [state]);
+  const update = useCallback((patch) => {
+    setState((current) => ({ ...current, ...patch }));
+  }, []);
+  return [state, update];
+}
+
 function createDatasetTab(overview, preferences) {
-  const normalizations = overview.normalizations ?? [];
-  const normalization = normalizations.some((item) => item.id === preferences.normalization)
-    ? preferences.normalization
-    : (normalizations[0]?.id ?? DEFAULT_VIEW_OPTIONS.normalization);
-  const labels = overview.binary_labels ?? [];
-  const label = preferences.labelName
-    ? labels.find((item) => item.name === preferences.labelName)
-    : null;
   const path = overview.path ?? null;
   const source = overview.source ?? path ?? "initial";
   const title = path?.split("/").at(-1) ?? overview.title ?? "In-memory collection";
@@ -97,14 +140,7 @@ function createDatasetTab(overview, preferences) {
     selectedFeatures: overview.features
       .slice(0, Math.min(6, overview.limits?.max_selected_features ?? 128))
       .map((feature) => feature.index),
-    viewOptions: {
-      normalization,
-      scope: preferences.scope,
-      labelIndex: label?.index ?? null,
-      mode: preferences.mode,
-      layout: preferences.layout,
-      transform: { ...preferences.transform },
-    },
+    transform: { ...preferences.transform },
     viewport: [0, 0],
     committedViewport: [0, 0],
     data: null,
@@ -116,12 +152,8 @@ function createDatasetTab(overview, preferences) {
 }
 
 function preferencesFromTab(tab) {
-  const labelName = (tab.overview.binary_labels ?? []).find(
-    (label) => label.index === tab.viewOptions.labelIndex,
-  )?.name ?? null;
   return {
-    ...tab.viewOptions,
-    labelName,
+    transform: tab.transform,
     inspectorOpen: tab.inspectorOpen,
     inspectorWidth: tab.inspectorWidth,
   };
@@ -175,6 +207,15 @@ function useDatasetTabs() {
     }
   }, [activeSource, tabs]);
 
+  const reorderTabs = useCallback((source, target) => {
+    if (source === target) return;
+    setTabs((current) => {
+      const from = current.findIndex((tab) => tab.source === source);
+      const to = current.findIndex((tab) => tab.source === target);
+      return from < 0 || to < 0 ? current : arrayMove(current, from, to);
+    });
+  }, []);
+
   useEffect(() => {
     if (!activeDataset) return undefined;
     const preferences = preferencesFromTab(activeDataset);
@@ -213,50 +254,103 @@ function useDatasetTabs() {
     setActiveSource,
     openTab,
     closeTab,
+    reorderTabs,
     ...setters,
   };
 }
 
-function DatasetTabs({ tabs, activeSource, onSelect, onClose, onNew }) {
+function SortableTabNode({ node }) {
+  const id = String(node.key);
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+  const style = {
+    transform: transform
+      ? `translate3d(${Math.round(transform.x)}px, ${Math.round(transform.y)}px, 0)`
+      : undefined,
+    transition,
+  };
   return (
-    <div className="dataset-tabs" role="tablist" aria-label="Open datasets">
-      <div className="dataset-tab-list">
-        {tabs.map((tab) => (
-          <div
-            className={`dataset-tab ${tab.source === activeSource ? "is-active" : ""}`}
-            role="tab"
-            aria-selected={tab.source === activeSource}
-            tabIndex={tab.source === activeSource ? 0 : -1}
-            title={tab.path ?? tab.title}
-            key={tab.source}
-            onClick={() => onSelect(tab.source)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                onSelect(tab.source);
-              }
-            }}
-          >
-            <span>{tab.title}</span>
-            <button
-              type="button"
-              aria-label={`Close ${tab.title}`}
-              title="Close dataset"
-              onClick={(event) => {
-                event.stopPropagation();
-                onClose(tab.source);
-              }}
-            >
-              <X size={12} aria-hidden="true" />
-            </button>
-          </div>
-        ))}
-      </div>
-      <button type="button" className="dataset-tab-new" onClick={onNew} title="Open dataset">
-        <Plus size={14} aria-hidden="true" />
-        <span>Open</span>
+    <div
+      ref={setNodeRef}
+      className={`dataset-tab-sortable ${isDragging ? "is-dragging" : ""}`}
+      style={style}
+    >
+      <button
+        type="button"
+        className="dataset-tab-drag-handle"
+        aria-label="Reorder dataset tab"
+        title="Drag to reorder"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical size={12} aria-hidden="true" />
       </button>
+      {node}
     </div>
+  );
+}
+
+function DatasetTabs({ tabs, activeSource, onSelect, onClose, onNew, onReorder }) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  const items = useMemo(
+    () => tabs.map((tab) => ({
+      key: tab.source,
+      label: <span className="dataset-tab-label" title={tab.path ?? tab.title}>{tab.title}</span>,
+      children: null,
+      closable: true,
+    })),
+    [tabs],
+  );
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={({ active, over }) => {
+        if (over) onReorder(String(active.id), String(over.id));
+      }}
+    >
+      <Tabs
+        prefixCls="dataset-tabs"
+        activeKey={activeSource ?? undefined}
+        items={items}
+        animated={false}
+        destroyOnHidden
+        onChange={onSelect}
+        editable={{
+          showAdd: true,
+          addIcon: <Plus size={14} aria-hidden="true" />,
+          removeIcon: <X size={12} aria-hidden="true" />,
+          onEdit: (type, info) => {
+            if (type === "add") onNew();
+            else if (info.key) onClose(String(info.key));
+          },
+        }}
+        locale={{
+          addAriaLabel: "Open dataset",
+          removeAriaLabel: "Close dataset",
+          dropdownAriaLabel: "More datasets",
+        }}
+        renderTabBar={(props, DefaultTabBar) => (
+          <SortableContext
+            items={tabs.map((tab) => tab.source)}
+            strategy={horizontalListSortingStrategy}
+          >
+            <DefaultTabBar {...props}>
+              {(node) => <SortableTabNode node={node} key={node.key} />}
+            </DefaultTabBar>
+          </SortableContext>
+        )}
+      />
+    </DndContext>
   );
 }
 
@@ -287,7 +381,7 @@ function Header({ overview, activePath, inspectorOpen, onMenu, onInspector, onHe
         )}
       </div>
       <div className="header-actions">
-        <button type="button" aria-label="Show keyboard reference" title="Keyboard reference" onClick={onHelp}>
+        <button type="button" aria-label="Show interaction help" title="Interaction help" onClick={onHelp}>
           <CircleHelp size={17} />
         </button>
         <button
@@ -302,6 +396,56 @@ function Header({ overview, activePath, inspectorOpen, onMenu, onInspector, onHe
         </button>
       </div>
     </header>
+  );
+}
+
+function HelpDialog({ open, onDismiss }) {
+  const dialogRef = useRef(null);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (open && !dialog.open) dialog.showModal();
+    else if (!open && dialog.open) dialog.close();
+  }, [open]);
+  return (
+    <dialog
+      ref={dialogRef}
+      className="help-dialog"
+      aria-labelledby="help-dialog-title"
+      onCancel={(event) => {
+        event.preventDefault();
+        onDismiss();
+      }}
+      onClose={onDismiss}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onDismiss();
+      }}
+    >
+      <div className="help-dialog-card">
+        <div className="help-dialog-head">
+          <div>
+            <span className="eyebrow">INTERACTION</span>
+            <h2 id="help-dialog-title">Controls</h2>
+          </div>
+          <button type="button" aria-label="Close interaction help" onClick={onDismiss}>
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+        <dl className="shortcut-grid help-shortcut-grid">
+          <div><dt><kbd>Wheel</kbd></dt><dd>Scroll tracks</dd></div>
+          <div><dt><kbd>Shift</kbd> + wheel</dt><dd>Timeline zoom at pointer</dd></div>
+          <div><dt><kbd>Alt</kbd> / <kbd>⌥</kbd> + wheel</dt><dd>Value zoom</dd></div>
+          <div><dt><kbd>Z</kbd></dt><dd>Box zoom</dd></div>
+          <div><dt><kbd>V</kbd></dt><dd>Pan</dd></div>
+          <div><dt><kbd>Space</kbd></dt><dd>Temporary pan</dd></div>
+          <div><dt><kbd>+</kbd> <kbd>−</kbd></dt><dd>Timeline zoom</dd></div>
+          <div><dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Move timeline</dd></div>
+          <div><dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>Rotate 15°</dd></div>
+          <div><dt><kbd>H</kbd></dt><dd>Flip X</dd></div>
+          <div><dt><kbd>0</kbd></dt><dd>Fit all</dd></div>
+        </dl>
+      </div>
+    </dialog>
   );
 }
 
@@ -421,14 +565,16 @@ function InspectorResizer({ width, workspaceRef, onResize }) {
       onPointerCancel={finish}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
-        drag.current = { lastWidth: width };
+        drag.current = { lastWidth: width, startWidth: width, startX: event.clientX };
         event.currentTarget.setPointerCapture(event.pointerId);
         document.body.classList.add("is-resizing-inspector");
       }}
       onPointerMove={(event) => {
         if (!drag.current || !workspaceRef.current) return;
-        const bounds = workspaceRef.current.getBoundingClientRect();
-        preview(bounds.right - event.clientX, event.currentTarget);
+        preview(
+          drag.current.startWidth + drag.current.startX - event.clientX,
+          event.currentTarget,
+        );
       }}
       onPointerUp={finish}
     >
@@ -438,11 +584,16 @@ function InspectorResizer({ width, workspaceRef, onResize }) {
 }
 
 function Toolbar({
+  overview,
   mode,
   layout,
+  normalization,
+  showLabels,
   disabled,
   onMode,
   onLayout,
+  onNormalization,
+  onShowLabels,
   onZoom,
   onFit,
 }) {
@@ -504,6 +655,32 @@ function Toolbar({
               onClick={() => onLayout("overlay")}
             >
               <BarChart3 size={14} /> Overlay
+            </button>
+          </div>
+        </div>
+        <label className="toolbar-group toolbar-select-field">
+          <span className="toolbar-caption">Normalization</span>
+          <select
+            value={normalization}
+            disabled={!overview}
+            onChange={(event) => onNormalization(event.target.value)}
+          >
+            {(overview?.normalizations ?? []).map((option) => (
+              <option value={option.id} key={option.id}>{option.name}</option>
+            ))}
+          </select>
+        </label>
+        <div className="toolbar-group">
+          <span className="toolbar-caption">Overlay</span>
+          <div className="segmented">
+            <button
+              type="button"
+              className={showLabels ? "is-active" : ""}
+              aria-pressed={showLabels}
+              disabled={disabled || !(overview?.binary_labels?.length)}
+              onClick={() => onShowLabels(!showLabels)}
+            >
+              <Tag size={14} /> Labels
             </button>
           </div>
         </div>
@@ -576,6 +753,7 @@ export function App() {
     setActiveSource,
     openTab,
     closeTab,
+    reorderTabs,
     setItems,
     setItemsTotal,
     setItemsLoading,
@@ -584,7 +762,7 @@ export function App() {
     setSeriesIndex,
     setSeriesPoints,
     setSelectedFeatures,
-    setViewOptions,
+    setTransform,
     setViewport,
     setCommittedViewport,
     setData,
@@ -594,6 +772,7 @@ export function App() {
     setInspectorWidth,
     setFeatureQuery,
   } = tabState;
+  const [toolbarState, updateToolbarState] = useGlobalToolbarState();
   const overview = activeDataset?.overview ?? null;
   const activePath = activeDataset?.path ?? null;
   const items = activeDataset?.items ?? [];
@@ -605,8 +784,15 @@ export function App() {
   const seriesIndex = activeDataset?.seriesIndex ?? null;
   const seriesPoints = activeDataset?.seriesPoints ?? 0;
   const selectedFeatures = activeDataset?.selectedFeatures ?? [];
-  const viewOptions = activeDataset?.viewOptions ?? DEFAULT_VIEW_OPTIONS;
-  const { normalization, scope, labelIndex, mode, layout, transform } = viewOptions;
+  const availableNormalizations = overview?.normalizations ?? [];
+  const normalization = availableNormalizations.some(
+    (item) => item.id === toolbarState.normalization,
+  )
+    ? toolbarState.normalization
+    : (availableNormalizations[0]?.id ?? DEFAULT_VIEW_OPTIONS.normalization);
+  const { showLabels, mode, layout } = toolbarState;
+  const labelIndex = showLabels ? (overview?.binary_labels?.[0]?.index ?? null) : null;
+  const transform = activeDataset?.transform ?? DEFAULT_TAB_PREFERENCES.transform;
   const viewport = activeDataset?.viewport ?? [0, 0];
   const committedViewport = activeDataset?.committedViewport ?? [0, 0];
   const data = activeDataset?.data ?? null;
@@ -617,6 +803,7 @@ export function App() {
   const [openingPath, setOpeningPath] = useState(null);
   const [activeTab, setActiveTab] = useState("sources");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [booting, setBooting] = useState(true);
   const [bootError, setBootError] = useState("");
   const [notice, setNotice] = useState("");
@@ -635,32 +822,6 @@ export function App() {
   });
   const noticeTimer = useRef(null);
   const workspaceRef = useRef(null);
-
-  const setNormalization = useCallback((value) => {
-    setViewOptions((current) => ({ ...current, normalization: value }));
-  }, [setViewOptions]);
-  const setScope = useCallback((value) => {
-    setViewOptions((current) => ({ ...current, scope: value }));
-  }, [setViewOptions]);
-  const setMode = useCallback((value) => {
-    setViewOptions((current) => ({ ...current, mode: value }));
-  }, [setViewOptions]);
-  const setLayout = useCallback((value) => {
-    setViewOptions((current) => ({ ...current, layout: value }));
-  }, [setViewOptions]);
-  const setTransform = useCallback((value) => {
-    setViewOptions((current) => ({
-      ...current,
-      transform: typeof value === "function" ? value(current.transform) : value,
-    }));
-  }, [setViewOptions]);
-  const setLabelIndex = useCallback((value) => {
-    const label = (overview?.binary_labels ?? []).find((item) => item.index === value);
-    setViewOptions((current) => ({
-      ...current,
-      labelIndex: label?.index ?? null,
-    }));
-  }, [overview, setViewOptions]);
 
   useEffect(() => {
     try {
@@ -786,7 +947,6 @@ export function App() {
           series: seriesIndex,
           features: selectedFeatures.join(","),
           normalization,
-          scope,
           label: labelIndex,
           start: requestStart,
           stop: requestStop,
@@ -807,7 +967,7 @@ export function App() {
       controller.abort();
       setDataLoading(false);
     };
-  }, [activeSource, committedViewport, labelIndex, normalization, overview, scope, selectedFeatures, seriesIndex, seriesPoints, setData, setDataError, setDataLoading]);
+  }, [activeSource, committedViewport, labelIndex, normalization, overview, selectedFeatures, seriesIndex, seriesPoints, setData, setDataError, setDataLoading]);
 
   const openSource = useCallback((path) => {
     setOpeningPath(path);
@@ -881,10 +1041,7 @@ export function App() {
         inspectorOpen={inspectorOpen}
         onMenu={() => setSidebarOpen(true)}
         onInspector={() => setInspectorOpen((current) => !current)}
-        onHelp={() => {
-          setInspectorOpen(true);
-          notify("Interaction controls are listed in the inspector.");
-        }}
+        onHelp={() => setHelpOpen(true)}
       />
       <div
         className={`workspace ${inspectorOpen ? "has-inspector" : ""}`}
@@ -922,24 +1079,30 @@ export function App() {
           onResize={setSidebarWidth}
         />
         <main className="editor" id="editor-main" tabIndex="-1">
+          <Toolbar
+            overview={overview}
+            mode={mode}
+            layout={layout}
+            normalization={normalization}
+            showLabels={showLabels}
+            disabled={!data}
+            onMode={(value) => updateToolbarState({ mode: value })}
+            onLayout={(value) => updateToolbarState({ layout: value })}
+            onNormalization={(value) => updateToolbarState({ normalization: value })}
+            onShowLabels={(value) => updateToolbarState({ showLabels: value })}
+            onZoom={zoom}
+            onFit={() => handleViewport([0, seriesPoints], true)}
+          />
           <DatasetTabs
             tabs={tabs}
             activeSource={activeSource}
             onSelect={setActiveSource}
             onClose={closeDataset}
+            onReorder={reorderTabs}
             onNew={() => {
               setActiveTab("sources");
               setSidebarOpen(true);
             }}
-          />
-          <Toolbar
-            mode={mode}
-            layout={layout}
-            disabled={!data}
-            onMode={setMode}
-            onLayout={setLayout}
-            onZoom={zoom}
-            onFit={() => handleViewport([0, seriesPoints], true)}
           />
           <section className="editor-surface" aria-label="Time-series tracks">
             {data ? (
@@ -951,7 +1114,7 @@ export function App() {
                   layout={layout}
                   transform={transform}
                   mode={mode}
-                  onModeChange={setMode}
+                  onModeChange={(value) => updateToolbarState({ mode: value })}
                   onTransformChange={setTransform}
                   onViewportChange={handleViewport}
                 />
@@ -972,37 +1135,31 @@ export function App() {
               <div className="surface-loading" role="status"><LoaderCircle className="spin" size={15} /> Updating</div>
             )}
             {dataError && data && <div className="surface-error" role="alert">{dataError}</div>}
+            {inspectorOpen && (
+              <InspectorResizer
+                width={inspectorWidth}
+                workspaceRef={workspaceRef}
+                onResize={setInspectorWidth}
+              />
+            )}
+            <Inspector
+              open={inspectorOpen}
+              features={selectedFeatureRecords}
+              transform={transform}
+              overview={overview}
+              data={data}
+              onClose={() => setInspectorOpen(false)}
+              onTransformChange={setTransform}
+              onTransformReset={() => setTransform({ ...DEFAULT_TAB_PREFERENCES.transform })}
+              onMoveTrack={moveTrack}
+              onRemoveTrack={toggleFeature}
+              onSoloTrack={(featureIndex) => setSelectedFeatures([featureIndex])}
+            />
           </section>
           <StatusBar data={data} viewport={viewport} totalPoints={seriesPoints} loading={dataLoading} notice={notice} />
         </main>
-        {inspectorOpen && (
-          <InspectorResizer
-            width={inspectorWidth}
-            workspaceRef={workspaceRef}
-            onResize={setInspectorWidth}
-          />
-        )}
-        <Inspector
-          open={inspectorOpen}
-          normalization={normalization}
-          scope={scope}
-          labelIndex={labelIndex}
-          features={selectedFeatureRecords}
-          transform={transform}
-          overview={overview}
-          data={data}
-          controlsDisabled={!data}
-          onClose={() => setInspectorOpen(false)}
-          onNormalizationChange={setNormalization}
-          onScopeChange={setScope}
-          onLabelChange={setLabelIndex}
-          onTransformChange={setTransform}
-          onTransformReset={() => setTransform({ ...DEFAULT_VIEW_OPTIONS.transform })}
-          onMoveTrack={moveTrack}
-          onRemoveTrack={toggleFeature}
-          onSoloTrack={(featureIndex) => setSelectedFeatures([featureIndex])}
-        />
       </div>
+      <HelpDialog open={helpOpen} onDismiss={() => setHelpOpen(false)} />
     </div>
   );
 }

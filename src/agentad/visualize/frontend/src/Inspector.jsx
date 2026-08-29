@@ -29,68 +29,6 @@ function NumberControl({ label, value, min, max, step, suffix = "", onChange }) 
   );
 }
 
-function DisplayPanel({
-  overview,
-  normalization,
-  scope,
-  labelIndex,
-  disabled,
-  onNormalizationChange,
-  onScopeChange,
-  onLabelChange,
-}) {
-  return (
-    <section className="inspector-section">
-      <div className="section-heading">
-        <div>
-          <span className="eyebrow">DISPLAY</span>
-          <h2>Rendering</h2>
-        </div>
-      </div>
-      <div className="inspector-fields">
-        <label className="inspector-field">
-          <span>Normalization</span>
-          <select
-            value={normalization}
-            disabled={disabled}
-            onChange={(event) => onNormalizationChange(event.target.value)}
-          >
-            {(overview?.normalizations ?? []).map((option) => (
-              <option value={option.id} key={option.id}>{option.name}</option>
-            ))}
-          </select>
-        </label>
-        <label className="inspector-field">
-          <span>Scope</span>
-          <select
-            value={scope}
-            disabled={disabled}
-            onChange={(event) => onScopeChange(event.target.value)}
-          >
-            <option value="feature">Per feature</option>
-            <option value="global">Global</option>
-          </select>
-        </label>
-        <label className="inspector-field">
-          <span>Label overlay</span>
-          <select
-            value={labelIndex ?? ""}
-            disabled={disabled}
-            onChange={(event) => onLabelChange(
-              event.target.value === "" ? null : Number(event.target.value),
-            )}
-          >
-            <option value="">None</option>
-            {(overview?.binary_labels ?? []).map((label) => (
-              <option value={label.index} key={label.index}>{label.name}</option>
-            ))}
-          </select>
-        </label>
-      </div>
-    </section>
-  );
-}
-
 function TransformPanel({ transform, onChange, onReset }) {
   return (
     <section className="inspector-section">
@@ -237,30 +175,21 @@ function DetailsPanel({ overview, data }) {
           <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
         ))}
       </dl>
-      {data?.series.meta && Object.keys(data.series.meta).length > 0 && (
-        <details className="metadata-details">
-          <summary>Series metadata</summary>
-          <pre>{JSON.stringify(data.series.meta, null, 2)}</pre>
-        </details>
-      )}
+      <div className="metadata-details">
+        <h3>Series metadata</h3>
+        <pre>{JSON.stringify(data?.series.meta ?? {}, null, 2)}</pre>
+      </div>
     </section>
   );
 }
 
 export function Inspector({
   open,
-  normalization,
-  scope,
-  labelIndex,
   features,
   transform,
   overview,
   data,
-  controlsDisabled,
   onClose,
-  onNormalizationChange,
-  onScopeChange,
-  onLabelChange,
   onTransformChange,
   onTransformReset,
   onMoveTrack,
@@ -277,35 +206,9 @@ export function Inspector({
         <strong>Inspector</strong>
         <button type="button" aria-label="Close inspector" onClick={onClose}><X size={16} /></button>
       </div>
-      <DisplayPanel
-        overview={overview}
-        normalization={normalization}
-        scope={scope}
-        labelIndex={labelIndex}
-        disabled={controlsDisabled}
-        onNormalizationChange={onNormalizationChange}
-        onScopeChange={onScopeChange}
-        onLabelChange={onLabelChange}
-      />
       <TransformPanel transform={transform} onChange={onTransformChange} onReset={onTransformReset} />
       <TracksPanel features={features} onMove={onMoveTrack} onRemove={onRemoveTrack} onSolo={onSoloTrack} />
       <DetailsPanel overview={overview} data={data} />
-      <section className="inspector-section shortcut-section">
-        <span className="eyebrow">INTERACTION</span>
-        <dl className="shortcut-grid">
-          <div><dt><kbd>Wheel</kbd></dt><dd>Scroll tracks</dd></div>
-          <div><dt><kbd>Shift</kbd> + wheel</dt><dd>Timeline zoom</dd></div>
-          <div><dt><kbd>Alt</kbd> / <kbd>⌥</kbd> + wheel</dt><dd>Value zoom</dd></div>
-          <div><dt><kbd>Z</kbd></dt><dd>Box zoom</dd></div>
-          <div><dt><kbd>V</kbd></dt><dd>Pan</dd></div>
-          <div><dt><kbd>Space</kbd></dt><dd>Temporary pan</dd></div>
-          <div><dt><kbd>+</kbd> <kbd>−</kbd></dt><dd>Zoom</dd></div>
-          <div><dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Move timeline</dd></div>
-          <div><dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>Rotate 15°</dd></div>
-          <div><dt><kbd>H</kbd></dt><dd>Flip X</dd></div>
-          <div><dt><kbd>0</kbd></dt><dd>Fit all</dd></div>
-        </dl>
-      </section>
     </aside>
   );
 }

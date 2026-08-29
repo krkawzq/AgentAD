@@ -45,22 +45,11 @@ test("tree updates preserve untouched branches", () => {
 
 test("last-tab preferences are validated for new independent tabs", () => {
   const preferences = core.parseTabPreferences(JSON.stringify({
-    normalization: "robust",
-    scope: "global",
-    labelName: "is_anomaly",
-    mode: "select",
-    layout: "overlay",
     transform: { rotation: 500, scaleX: 0, scaleY: 8, flipX: true },
     inspectorOpen: true,
     inspectorWidth: 900,
   }));
   assert.deepEqual(preferences, {
-    normalization: "robust",
-    scope: "global",
-    labelIndex: null,
-    labelName: "is_anomaly",
-    mode: "select",
-    layout: "overlay",
     transform: {
       rotation: 180,
       scaleX: 0.25,
@@ -74,6 +63,25 @@ test("last-tab preferences are validated for new independent tabs", () => {
   assert.deepEqual(
     core.parseTabPreferences(core.serializeTabPreferences(preferences)),
     preferences,
+  );
+});
+
+test("global toolbar state is shared and validated independently", () => {
+  const state = core.parseGlobalToolbarState(JSON.stringify({
+    normalization: "robust",
+    showLabels: true,
+    mode: "select",
+    layout: "overlay",
+  }));
+  assert.deepEqual(state, {
+    normalization: "robust",
+    showLabels: true,
+    mode: "select",
+    layout: "overlay",
+  });
+  assert.deepEqual(
+    core.parseGlobalToolbarState(core.serializeGlobalToolbarState(state)),
+    state,
   );
 });
 

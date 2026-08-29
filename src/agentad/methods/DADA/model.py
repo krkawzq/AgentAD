@@ -450,6 +450,18 @@ class DADA(nn.Module):
         }
         self.load_state_dict(converted, strict=strict)
 
+    @classmethod
+    def from_official_checkpoint(cls, path: str | Path) -> "DADA":
+        """Build a DADA with the published architecture and load its weights.
+
+        The released checkpoint stores the Hugging Face AutoModel form, whose
+        keys carry a ``model.`` prefix; :meth:`load_reference_checkpoint`
+        strips it, so the published weights load without any renaming.
+        """
+        model = cls(DADAConfig.original_pretrained())
+        model.load_reference_checkpoint(path)
+        return model
+
 
 class DADALightningModule(L.LightningModule):
     """DADA has no public training objective; this module never invents one."""

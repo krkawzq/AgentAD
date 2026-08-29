@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import torch
 from torch import Tensor, nn
@@ -382,6 +383,44 @@ class TimeRCD(nn.Module):
             raise TypeError("checkpoint does not contain a state dictionary")
         state = {key.removeprefix("module."): value for key, value in state.items()}
         self.load_state_dict(state, strict=strict)
+
+
+def load_official_checkpoint(
+    path: str | Path,
+    *,
+    variant: Literal["uni", "multi"] | None = None,
+    input_features: int | None = None,
+) -> TimeRCD:
+    """Build a TimeRCD and load a published Time-RCD checkpoint.
+
+    ``variant`` selects the published architecture defaults; ``None`` infers
+    it from the checkpoint's stored config (``num_features == 1`` means the
+    univariate model). The published multivariate checkpoint is
+    channel-independent, so ``input_features`` only describes the series to
+    score and defaults to the published pretraining width of 8. The published
+    checkpoints store training archives; :meth:`TimeRCD.load_checkpoint`
+    unwraps ``model_state_dict`` and strips ``module.`` prefixes, so the keys
+    load without renaming.
+    """
+    checkpoint = torch.load(Path(path), map_location="cpu", weights_only=True)
+    stored = (
+        checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
+    )
+    num_features = stored.get("ts_config", {}).get("num_features")
+    if variant is None:
+        variant = "uni" if num_features == 1 else "multi"
+    if variant == "uni":
+        config = TimeRCDConfig.original_pretrained_univariate()
+    elif variant == "multi":
+        features = 8 if input_features is None else input_features
+        config = TimeRCDConfig.original_pretrained_multivariate(
+            input_features=features
+        )
+    else:
+        raise ValueError(f"variant must be 'uni' or 'multi', got {variant!r}")
+    model = TimeRCD(config)
+    model.load_checkpoint(path)
+    return model
 
 
 class TimeRCDLightningModule(L.LightningModule):

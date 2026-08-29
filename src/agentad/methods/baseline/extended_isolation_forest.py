@@ -1,0 +1,151 @@
+"""Extended isolation-forest detector.
+
+Scores every series point directly — no windows, matching the original —
+after standardizing the points (across features when multivariate, along
+time when univariate). Each tree subsamples at most ``sample_size`` points
+and splits with a random hyperplane: a normal vector with ``extension_level
++ 1`` random components, passing through a point whose coordinates are
+uniform between the per-dimension extrema. A point's score is the mean
+traversal depth normalized by the expected unsuccessful-search depth of a
+binary search tree, so points isolated near the root score close to one.
+Unlike the axis-aligned forest, leaf sizes do not add to the path length.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+
+import numpy as np
+import torch
+from torch import Tensor
+
+from ._common import expected_search_depth, standardize_points
+from .._utils import validate_series
+
+
+@dataclass(frozen=True, slots=True)
+class ExtendedIsolationForestConfig:
+    trees: int = 100
+    sample_size: int = 256
+    extension_level: int | None = None
+    seed: int = 0
+    normalize: bool = True
+
+    def __post_init__(self) -> None:
+        if self.trees < 1:
+            raise ValueError("trees must be positive")
+        if self.sample_size < 2:
+            raise ValueError("sample_size must be at least two")
+        if self.extension_level is not None and self.extension_level < 0:
+            raise ValueError("extension_level must be non-negative when provided")
+
+
+def _grow_tree(
+    rows: np.ndarray, limit: int, extension: int, generator: np.random.Generator
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Grow one oblique tree; returns node arrays of normals, points,
+    children, and depths, with ``left < 0`` marking a leaf."""
+    dim = rows.shape[1]
+    normals: list[np.ndarray] = []
+    points: list[np.ndarray] = []
+    left: list[int] = []
+    right: list[int] = []
+    depth: list[int] = []
+
+    def build(indices: np.ndarray, level: int) -> int:
+        node = len(left)
+        normals.append(np.zeros(dim))
+        points.append(np.zeros(dim))
+        left.append(-1)
+        right.append(-1)
+        depth.append(level)
+        if level >= limit or indices.size <= 1:
+            return node
+        subset = rows[indices]
+        normal = generator.standard_normal(dim)
+        zeroed = generator.choice(dim, dim - extension - 1, replace=False)
+        normal[zeroed] = 0.0
+        point = generator.uniform(subset.min(axis=0), subset.max(axis=0))
+        normals[node] = normal
+        points[node] = point
+        projection = (subset - point) @ normal
+        mask = projection < 0
+        if mask.all() or not mask.any():
+            return node
+        left[node] = build(indices[mask], level + 1)
+        right[node] = build(indices[~mask], level + 1)
+        return node
+
+    build(np.arange(rows.shape[0]), 0)
+    return (
+        np.stack(normals),
+        np.stack(points),
+        np.array(left),
+        np.array(right),
+        np.array(depth),
+    )
+
+
+def _tree_depths(
+    rows: Tensor,
+    normals: np.ndarray,
+    points: np.ndarray,
+    left: np.ndarray,
+    right: np.ndarray,
+    depth: np.ndarray,
+) -> Tensor:
+    """Route every point to its leaf; the score path is the plain depth."""
+    count = rows.shape[0]
+    current = torch.zeros(count, dtype=torch.long, device=rows.device)
+    normals_t = torch.from_numpy(normals).to(rows.device, rows.dtype)
+    points_t = torch.from_numpy(points).to(rows.device, rows.dtype)
+    left_t = torch.from_numpy(left).to(rows.device)
+    right_t = torch.from_numpy(right).to(rows.device)
+    while True:
+        active = left_t[current] >= 0
+        if not bool(active.any()):
+            break
+        safe = torch.where(active, current, torch.zeros_like(current))
+        projection = ((rows - points_t[safe]) * normals_t[safe]).sum(dim=1)
+        current = torch.where(
+            active,
+            torch.where(projection < 0, left_t[safe], right_t[safe]),
+            current,
+        )
+    return torch.from_numpy(depth).to(rows.device, rows.dtype)[current]
+
+
+def _score_item(
+    points: Tensor, config: ExtendedIsolationForestConfig
+) -> Tensor:
+    rows, width = points.shape
+    if rows == 0:
+        return points.new_zeros(0)
+    sample = min(config.sample_size, rows)
+    limit = int(math.ceil(math.log2(sample)))
+    extension = (
+        width - 1 if config.extension_level is None else config.extension_level
+    )
+    extension = min(extension, width - 1)
+    denominator = expected_search_depth(sample)
+    generator = np.random.default_rng(config.seed)
+    total = points.new_zeros(rows)
+    for _ in range(config.trees):
+        chosen = generator.choice(rows, size=sample, replace=False)
+        tree = _grow_tree(
+            points[chosen].cpu().numpy(), limit, extension, generator
+        )
+        total = total + _tree_depths(points, *tree)
+    average = total / config.trees
+    return torch.pow(2.0, -average / max(denominator, 1e-12))
+
+
+@torch.inference_mode()
+def score(series: Tensor, config: ExtendedIsolationForestConfig) -> Tensor:
+    series = validate_series(series)
+    outputs = []
+    for item in series:
+        points = standardize_points(item, normalize=config.normalize)
+        outputs.append(_score_item(points, config))
+    return torch.stack(outputs)
