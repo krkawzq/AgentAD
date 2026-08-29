@@ -8,15 +8,21 @@ import lightning as L
 import torch
 from torch import Tensor
 
+from .._utils import ValidationEarlyStopping
 from .config import KANADConfig
 from .model import KANAD
 
 
-class KANADLightningModule(L.LightningModule):
+class KANADLightningModule(ValidationEarlyStopping, L.LightningModule):
     def __init__(self, config: KANADConfig | None = None) -> None:
         super().__init__()
         self.config = config or KANADConfig.original_default()
         self.model = KANAD(self.config)
+        self._init_validation_early_stopping(
+            monitor="val/loss",
+            patience=self.config.early_stopping_patience,
+            min_delta=self.config.early_stopping_min_delta,
+        )
 
     def forward(self, windows: Tensor):
         return self.model(windows)

@@ -149,6 +149,27 @@ class TSPulse(nn.Module):
             return reference.new_zeros(())
         return value.mean()
 
+    def _generate_training_mask(self, series: Tensor) -> Tensor:
+        """Hide one random patch inside the aggregation window per sample.
+
+        This mirrors the TSB-AD ``PatchMaskingDatasetWrapper`` fine-tuning
+        recipe, which guarantees at least one hidden patch for every window.
+        """
+        batch, time, channels = series.shape
+        mask = torch.ones(
+            batch, time, channels, dtype=torch.bool, device=series.device
+        )
+        window_start = max(0, time - self.config.aggregation_length)
+        count = (time - window_start) // self.patch_length
+        if count < 1:
+            raise ValueError("the aggregation window must contain one patch")
+        choice = torch.randint(count, (batch,), device=series.device)
+        starts = window_start + choice * self.patch_length
+        offsets = torch.arange(self.patch_length, device=series.device)
+        rows = torch.arange(batch, device=series.device)[:, None]
+        mask[rows, starts[:, None] + offsets[None, :]] = False
+        return mask
+
     def compute_loss(
         self,
         series: Tensor,
@@ -157,6 +178,16 @@ class TSPulse(nn.Module):
         observed_mask: Tensor | None = None,
         generator: torch.Generator | None = None,
     ) -> TSPulseLoss:
+        series = self._validate_windows(series)
+        if observed_mask is not None:
+            if observed_mask.shape != series.shape:
+                raise ValueError("observed_mask must match the input series")
+            hidden = ~observed_mask.bool()
+            if not hidden.any(dim=(1, 2)).all():
+                raise ValueError(
+                    "observed_mask must hide at least one time point of every "
+                    "window; the masked reconstruction loss is otherwise empty"
+                )
         devices = []
         if series.is_cuda and series.device.index is not None:
             devices = [series.device.index]
@@ -166,6 +197,8 @@ class TSPulse(nn.Module):
                 torch.manual_seed(seed)
                 if series.is_cuda:
                     torch.cuda.manual_seed(seed)
+            if observed_mask is None and self.config.mask_type == "user":
+                observed_mask = self._generate_training_mask(series)
             output = self(
                 series,
                 observed_mask,
@@ -189,6 +222,22 @@ class TSPulse(nn.Module):
         minimum = score.amin(1, keepdim=True)
         maximum = score.amax(1, keepdim=True)
         return (score - minimum) / (maximum - minimum).clamp_min(1e-12)
+
+    @staticmethod
+    def _standardize_series(series: Tensor) -> Tensor:
+        """Whole-series z-score per channel, as the reference scoring pipeline."""
+        mean = series.mean(1, keepdim=True)
+        deviation = series.std(1, keepdim=True, unbiased=False)
+        deviation = torch.where(deviation == 0, torch.ones_like(deviation), deviation)
+        return (series - mean) / deviation
+
+    def _moving_average(self, score: Tensor) -> Tensor:
+        """Zero-padded moving average matching ``np.convolve(..., mode="same")``."""
+        window = self.config.smoothing_window
+        kernel = score.new_full((1, 1, window), 1 / window)
+        left = (window - 1) // 2
+        right = window // 2
+        return F.conv1d(F.pad(score[:, None], (left, right)), kernel)[:, 0]
 
     def _align_reconstruction_scores(self, score: Tensor, length: int) -> Tensor:
         aggregation = min(self.config.aggregation_length, self.context_length)
@@ -236,6 +285,7 @@ class TSPulse(nn.Module):
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
         with evaluation_mode(self):
+            series = self._standardize_series(series)
             windows = sliding_windows(series, self.context_length)
             flattened = windows.flatten(0, 1)
             mode_scores: list[Tensor] = []
@@ -270,20 +320,13 @@ class TSPulse(nn.Module):
                     ]
                     score = torch.cat(values).reshape(series.shape[0], -1)
                     score = self._align_reconstruction_scores(score, series.shape[1])
-                mode_scores.append(self._normalize_score(score))
-            combined = torch.stack(mode_scores).mean(0).pow(self.config.score_exponent)
-            if self.config.smoothing_window > 1:
-                kernel = combined.new_full(
-                    (1, 1, self.config.smoothing_window),
-                    1 / self.config.smoothing_window,
-                )
-                left = (self.config.smoothing_window - 1) // 2
-                right = self.config.smoothing_window - 1 - left
-                combined = F.conv1d(
-                    F.pad(combined[:, None], (left, right), mode="replicate"),
-                    kernel,
-                )[:, 0]
-            return combined
+                # Reference order: exponent, min-max, then per-mode smoothing.
+                score = self._normalize_score(score.pow(self.config.score_exponent))
+                if mode != "forecast" and self.config.smoothing_window > 1:
+                    score = self._moving_average(score)
+                mode_scores.append(score)
+            combined = torch.stack(mode_scores).max(0).values
+            return combined / (combined.amax(1, keepdim=True) + 1e-5)
 
 
 class TSPulseZeroShot(TSPulse):

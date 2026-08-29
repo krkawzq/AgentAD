@@ -17,33 +17,28 @@ license-files = [
 requires-python = ">=3.12"
 dependencies = [
     "granite-tsfm>=0.3.8",
-    "lightning==2.6.1",
-    "numba>=0.61,<1",
-    "numpy>=2.0,<3",
-    "pandas>=2.2,<3",
-    "pyarrow>=25.0.1",
-    "scipy>=1.18.1",
-    "statsmodels>=0.15.0",
-    "torch>=2.10,<2.12",
-    "xlstm==2.0.5",
+    "lightning>=2.6.5,<3",
+    "numba>=0.67,<1",
+    "numpy>=2.5.2,<3",
+    "pandas>=3.0.5,<4",
+    "pyarrow>=25.0.1,<26",
+    "scipy>=1.18.1,<2",
+    "statsmodels>=0.15.0,<1",
+    "torch>=2.11,<3",
+    "xlstm>=2.0.5,<3",
     "zarr>=3.3.0",
 ]
 
 [project.optional-dependencies]
 download = [
-    "gdown>=5.2,<6",
-    "requests>=2.32,<3",
+    "gdown",
+    "requests",
 ]
 
-# Worker CUDA 上限为 12.8，PyTorch 必须使用 cu128 wheel。
 [[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
-
-[tool.uv.sources]
-granite-tsfm = { path = "forks/granite-tsfm" }
-torch = { index = "pytorch-cu128" }
 
 [dependency-groups]
 dev = [

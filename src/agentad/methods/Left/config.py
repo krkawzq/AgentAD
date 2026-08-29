@@ -33,7 +33,6 @@ class LeftConfig:
     decoder_dropout: float = 0.1
     decoder_feedforward_dim: int = 128
     latent_fusion_hidden: int = 512
-    cycle_decoder_hidden: int = 256
     dropout: float = 0.1
     activation: Literal["relu", "gelu"] = "gelu"
     prototypes: int = 16
@@ -82,7 +81,6 @@ class LeftConfig:
             "fusion_feedforward_dim",
             "decoder_feedforward_dim",
             "latent_fusion_hidden",
-            "cycle_decoder_hidden",
             "train_epochs",
             "batch_size",
             "patience",

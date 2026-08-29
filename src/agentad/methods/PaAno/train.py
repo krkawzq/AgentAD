@@ -19,6 +19,8 @@ class PaAnoLightningModule(L.LightningModule):
         super().__init__()
         self.config = config or PaAnoConfig.original_default()
         self.model = PaAno(self.config)
+        self._best_iteration_loss: float | None = None
+        self._best_iteration_state: dict[str, Tensor] | None = None
 
     def forward(self, patches: Tensor) -> Tensor:
         return self.model(patches)
@@ -70,6 +72,15 @@ class PaAnoLightningModule(L.LightningModule):
             sync_dist=True,
             batch_size=indices.numel(),
         )
+        if stage == "train":
+            # The original keeps the weights of the best training iteration.
+            value = float(losses.total)
+            if self._best_iteration_loss is None or value < self._best_iteration_loss:
+                self._best_iteration_loss = value
+                self._best_iteration_state = {
+                    key: tensor.detach().cpu().clone()
+                    for key, tensor in self.state_dict().items()
+                }
         return losses.total
 
     def training_step(self, batch: object, batch_idx: int) -> Tensor:
@@ -77,6 +88,10 @@ class PaAnoLightningModule(L.LightningModule):
 
     def validation_step(self, batch: object, batch_idx: int) -> Tensor:
         return self._step(batch, "val")
+
+    def on_train_end(self) -> None:
+        if self._best_iteration_state is not None:
+            self.load_state_dict(self._best_iteration_state)
 
     def configure_optimizers(self) -> dict[str, Any]:
         optimizer = torch.optim.AdamW(

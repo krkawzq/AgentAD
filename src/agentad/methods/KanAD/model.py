@@ -108,6 +108,10 @@ class KANAD(nn.Module):
             targets = series[:, self.config.window :]
             prediction = self._predict(windows.flatten(0, 1)).reshape_as(targets)
             error = (prediction - targets).abs().mean(2)
+            # Non-finite forecasts are pinned to the original sentinel score.
+            error = torch.where(
+                torch.isnan(error), torch.full_like(error, 1000.0), error
+            )
             return F.pad(error, (self.config.window, 0))
 
     def pairs(self, series: Tensor, *, stride: int = 1) -> tuple[Tensor, Tensor]:

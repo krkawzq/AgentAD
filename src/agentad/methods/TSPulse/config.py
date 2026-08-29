@@ -74,7 +74,9 @@ class TSPulseConfig:
     finetune_batch_size: int = 256
     finetune_seed: int = 42
     finetune_freeze_backbone: bool = False
-    finetune_weight_decay: float = 0.0
+    finetune_weight_decay: float = 0.01
+    finetune_early_stopping_patience: int = 5
+    finetune_early_stopping_threshold: float = 1e-5
     one_cycle_pct_start: float = 0.3
 
     def __post_init__(self) -> None:
@@ -112,6 +114,18 @@ class TSPulseConfig:
             raise ValueError("fft_mask_ratio must be in [0, 1] when provided")
         if not self.score_modes or len(set(self.score_modes)) != len(self.score_modes):
             raise ValueError("score_modes must be non-empty and unique")
+        if (
+            self.aggregation_length < self.patch_length
+            or self.aggregation_length % self.patch_length
+        ):
+            raise ValueError(
+                "aggregation_length must be a multiple of patch_length that is at "
+                "least patch_length"
+            )
+        if self.finetune_early_stopping_patience <= 0:
+            raise ValueError("finetune_early_stopping_patience must be positive")
+        if self.finetune_early_stopping_threshold < 0:
+            raise ValueError("finetune_early_stopping_threshold must be non-negative")
         if not 0 <= self.finetune_validation < 1:
             raise ValueError("finetune_validation must be in [0, 1)")
         if self.finetune_learning_rate <= 0 or self.finetune_weight_decay < 0:

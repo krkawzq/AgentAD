@@ -10,15 +10,22 @@ import torch
 from torch import Tensor
 from torch.nn import functional as F
 
+from .._utils import ValidationEarlyStopping
 from .config import AxonADConfig
 from .model import AxonAD, AxonADLoss
 
 
-class AxonADLightningModule(L.LightningModule):
+class AxonADLightningModule(ValidationEarlyStopping, L.LightningModule):
     def __init__(self, config: AxonADConfig) -> None:
         super().__init__()
         self.config = config
         self.model = AxonAD(config)
+        # The original early-stops on the validation reconstruction MSE.
+        self._init_validation_early_stopping(
+            monitor="val/reconstruction",
+            patience=config.patience,
+            min_delta=config.early_stopping_min_delta,
+        )
 
     def forward(self, windows: Tensor):
         return self.model(windows)

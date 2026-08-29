@@ -159,7 +159,8 @@ class AxonAD(nn.Module):
         tail_length = self.config.window_length - tail_start
         block = max(1, round(tail_length * self.config.mask_block_fraction))
         block = min(block, tail_length)
-        blocks = max(1, math.ceil(tail_length * self.config.mask_ratio / block))
+        target_masked = max(1, round(tail_length * self.config.mask_ratio))
+        blocks = max(1, math.ceil(target_masked / block))
         starts = torch.randint(
             tail_start,
             max(tail_start + 1, self.config.window_length - block + 1),

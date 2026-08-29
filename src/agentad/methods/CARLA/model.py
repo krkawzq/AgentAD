@@ -291,13 +291,17 @@ class CARLA(nn.Module):
         """Optimize neighbor consistency, furthest-neighbor separation, and entropy."""
         if anchors.shape != nearest.shape or anchors.shape != furthest.shape:
             raise ValueError("anchors, nearest, and furthest must have equal shape")
-        outputs = self(torch.cat((anchors, nearest, furthest))).logits
+        # The original classification stage runs three separate forward passes
+        # so that batch normalization only sees one neighbor role at a time.
+        anchor_outputs = self(anchors).logits
+        nearest_outputs = self(nearest).logits
+        furthest_outputs = self(furthest).logits
         consistency_terms: list[Tensor] = []
         inconsistency_terms: list[Tensor] = []
         entropy_terms: list[Tensor] = []
-        batch = anchors.shape[0]
-        for logits in outputs:
-            anchor_logits, nearest_logits, furthest_logits = logits.split(batch)
+        for anchor_logits, nearest_logits, furthest_logits in zip(
+            anchor_outputs, nearest_outputs, furthest_outputs
+        ):
             anchor_probability = anchor_logits.softmax(1)
             nearest_probability = nearest_logits.softmax(1)
             furthest_probability = furthest_logits.softmax(1)
@@ -314,9 +318,9 @@ class CARLA(nn.Module):
                 )
             )
             entropy_terms.append(self._entropy(anchor_probability))
-        consistency = torch.stack(consistency_terms).mean()
-        inconsistency = torch.stack(inconsistency_terms).mean()
-        entropy = torch.stack(entropy_terms).mean()
+        consistency = torch.stack(consistency_terms).sum(0)
+        inconsistency = torch.stack(inconsistency_terms).sum(0)
+        entropy = torch.stack(entropy_terms).sum(0)
         total = (
             consistency
             + self.config.inconsistency_weight * inconsistency
@@ -324,11 +328,11 @@ class CARLA(nn.Module):
         )
         return CARLALoss(total, consistency, inconsistency, entropy)
 
-    def _encode_batches(self, windows: Tensor, batch_size: int) -> Tensor:
+    def _project_batches(self, windows: Tensor, batch_size: int) -> Tensor:
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
         windows = self._validate_windows(windows)
-        return torch.cat([self.encode(chunk) for chunk in windows.split(batch_size)])
+        return torch.cat([self.project(chunk) for chunk in windows.split(batch_size)])
 
     @torch.inference_mode()
     def mine_neighbors(
@@ -340,13 +344,15 @@ class CARLA(nn.Module):
         bank_chunk_size: int = 16384,
         encoding_batch_size: int = 2048,
     ) -> tuple[Tensor, Tensor]:
-        """Return per-window nearest and furthest indices using bounded memory."""
+        """Return per-window nearest and furthest indices using bounded memory.
+
+        Mining happens in the pretext projection space, matching the original
+        repository fill/mining pipeline.
+        """
         if k <= 0 or query_chunk_size <= 0 or bank_chunk_size <= 0:
             raise ValueError("k and chunk sizes must be positive")
         with evaluation_mode(self):
-            features = F.normalize(
-                self._encode_batches(windows, encoding_batch_size), dim=1
-            )
+            features = self._project_batches(windows, encoding_batch_size)
         if features.shape[0] <= k:
             raise ValueError("neighbor mining requires more than k windows")
         nearest: list[Tensor] = []

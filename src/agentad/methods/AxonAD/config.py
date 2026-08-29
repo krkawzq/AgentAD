@@ -23,6 +23,7 @@ class AxonADConfig:
     batch_size: int = 128
     epochs: int = 50
     patience: int = 3
+    early_stopping_min_delta: float = 1e-4
     learning_rate: float = 1e-3
     weight_decay: float = 1e-5
     validation_fraction: float = 0.2
@@ -55,6 +56,8 @@ class AxonADConfig:
             raise ValueError("mask fractions must be in (0,1]")
         if self.epsilon <= 0:
             raise ValueError("epsilon must be positive")
+        if self.early_stopping_min_delta < 0:
+            raise ValueError("early_stopping_min_delta must be non-negative")
         if self.learning_rate <= 0 or self.weight_decay < 0:
             raise ValueError("learning_rate must be positive and weight_decay non-negative")
         if not 0 <= self.validation_fraction < 1:

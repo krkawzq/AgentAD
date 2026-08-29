@@ -138,7 +138,7 @@ class _AdaptiveBottleneck(nn.Module):
         if values.numel() <= 1:
             return values.new_zeros(())
         values = values.float()
-        return values.var(unbiased=False) / values.mean().square().clamp_min(1e-10)
+        return values.var() / (values.mean().square() + 1e-10)
 
     def _gates(self, x: Tensor) -> tuple[Tensor, Tensor]:
         clean_logits = x @ self.w_gate

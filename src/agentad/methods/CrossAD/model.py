@@ -248,6 +248,7 @@ class CrossAD(nn.Module):
         self.decoder = nn.ModuleList(
             _DecoderLayer(config) for _ in range(config.decoder_layers)
         )
+        self.encoder_norm = _SequenceNorm(config.model_dim, config.normalization)
         self.decoder_norm = _SequenceNorm(config.model_dim, config.normalization)
         self.patch_projection = nn.Linear(config.model_dim, config.patch_length)
         self.context_memory = _ContextMemory(config)
@@ -295,6 +296,9 @@ class CrossAD(nn.Module):
         encoded = torch.cat(encoded_groups, dim=1) + self.position_encoding.to(x.dtype)
         for layer in self.encoder:
             encoded = layer(encoded, self.encoder_mask)
+        # The original encoder normalizes its output before the context
+        # extractor and the decoder consume it.
+        encoded = self.encoder_norm(encoded)
         target = torch.cat(scaled_values[1:] + [independent], dim=1)
         return independent, list(encoded.split(self.patch_counts[:-1], dim=1)), target
 

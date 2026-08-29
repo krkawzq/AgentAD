@@ -12,6 +12,55 @@ from torch import nn
 from torch.nn import functional as F
 
 
+class ValidationEarlyStopping:
+    """Mixin for Lightning modules replicating the original early-stopping loops.
+
+    Tracks the monitored validation metric per epoch, requests the trainer to
+    stop after ``patience`` epochs without an improvement of at least
+    ``min_delta``, and reloads the best weights when training ends. Host
+    modules must not define the same hooks without calling ``super()``.
+    """
+
+    def _init_validation_early_stopping(
+        self, *, monitor: str, patience: int, min_delta: float = 0.0
+    ) -> None:
+        self._monitor = monitor
+        self._early_stopping_patience = patience
+        self._early_stopping_min_delta = min_delta
+        self._best_metric: float | None = None
+        self._stale_epochs = 0
+        self._best_state: dict[str, Tensor] | None = None
+
+    def on_validation_epoch_end(self) -> None:
+        trainer = getattr(self, "trainer", None)
+        if trainer is None or trainer.sanity_checking:
+            return
+        metric = trainer.callback_metrics.get(self._monitor)
+        if metric is None:
+            raise RuntimeError(
+                f"validation early stopping requires the {self._monitor!r} metric"
+            )
+        value = float(metric)
+        if (
+            self._best_metric is None
+            or value < self._best_metric - self._early_stopping_min_delta
+        ):
+            self._best_metric = value
+            self._stale_epochs = 0
+            self._best_state = {
+                key: tensor.detach().cpu().clone()
+                for key, tensor in self.state_dict().items()
+            }
+        else:
+            self._stale_epochs += 1
+            if self._stale_epochs >= self._early_stopping_patience:
+                trainer.should_stop = True
+
+    def on_train_end(self) -> None:
+        if self._best_state is not None:
+            self.load_state_dict(self._best_state)
+
+
 @contextmanager
 def evaluation_mode(module: nn.Module) -> Iterator[None]:
     """Temporarily use deterministic evaluation behavior and restore the caller state."""

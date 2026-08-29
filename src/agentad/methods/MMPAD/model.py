@@ -23,12 +23,25 @@ class MMPAD(nn.Module):
             torch.empty(0, 0, 0),
             persistent=False,
         )
+        self.register_buffer(
+            "reference_valid",
+            torch.empty(0, 0),
+            persistent=False,
+        )
 
-    def _patches(self, series: Tensor) -> Tensor:
+    def _patches(self, series: Tensor) -> tuple[Tensor, Tensor]:
+        """Return z-normalized patches and per-dimension validity flags.
+
+        A subsequence is invalid on a channel when its standard deviation is
+        below ``epsilon`` or it contains non-finite values, matching the
+        original ``skip_loc`` marking.
+        """
         windows = sliding_windows(series, self.config.subsequence_length)
         mean = windows.mean(2, keepdim=True)
         scale = windows.var(2, keepdim=True, unbiased=False).sqrt()
-        return (windows - mean) / scale.clamp_min(self.config.epsilon)
+        valid = scale >= self.config.epsilon
+        normalized = (windows - mean) / scale.clamp_min(self.config.epsilon)
+        return normalized, valid.squeeze(2)
 
     def _dimension_count(self, features: int) -> int:
         value = self.config.dimensions
@@ -45,13 +58,17 @@ class MMPAD(nn.Module):
             min_length=self.config.subsequence_length,
             name="normal_series",
         )
-        self.reference_patches = self._patches(normal_series).flatten(0, 1).detach()
+        patches, valid = self._patches(normal_series)
+        self.reference_patches = patches.flatten(0, 1).detach()
+        self.reference_valid = valid.flatten(0, 1).detach()
         return self
 
     def _window_scores(
         self,
         query: Tensor,
+        query_valid: Tensor,
         reference: Tensor,
+        reference_valid: Tensor,
         *,
         self_join: bool,
     ) -> Tensor:
@@ -65,34 +82,65 @@ class MMPAD(nn.Module):
                 torch.einsum("qlc,rlc->qrc", query[start:stop], reference)
                 / self.config.subsequence_length
             )
-            similarity = correlation.kthvalue(dimensions, dim=2).values
+            # Invalid pairs rank last in the ascending-dimension selection,
+            # exactly like the original invalid marking before the sort.
+            invalid = (
+                ~query_valid[start:stop, None, :]
+                | ~reference_valid[None, :, :]
+                | ~torch.isfinite(correlation)
+            )
+            similarity = correlation.masked_fill(invalid, torch.inf)
             if self_join:
                 query_positions = torch.arange(start, stop, device=query.device)
-                similarity.masked_fill_(
-                    (reference_positions[None] >= query_positions[:, None] - exclusion)
-                    & (
-                        reference_positions[None]
-                        < query_positions[:, None] + exclusion
-                    ),
-                    -torch.inf,
+                exclusion_zone = (
+                    reference_positions[None]
+                    >= query_positions[:, None] - exclusion
+                ) & (
+                    reference_positions[None]
+                    < query_positions[:, None] + exclusion
                 )
+                similarity.masked_fill_(exclusion_zone.unsqueeze(-1), -torch.inf)
+            finite = torch.isfinite(similarity)
+            selected_k = similarity.kthvalue(dimensions, dim=2).values
+            # With fewer than ``dimensions`` valid channels the original
+            # forward-fills from the previous sorted slot, which is the largest
+            # valid correlation; with none it stays invalid.
+            largest_valid = similarity.masked_fill(~finite, -torch.inf).amax(dim=2)
+            valid_count = finite.sum(dim=2)
+            value = torch.where(
+                valid_count >= dimensions,
+                selected_k,
+                torch.where(
+                    valid_count >= 1,
+                    largest_valid,
+                    selected_k.new_full((), -torch.inf),
+                ),
+            )
 
-            selected = similarity.new_full((similarity.shape[0],), -torch.inf)
-            candidates = similarity.clone()
+            selected = value.new_full((value.shape[0],), -torch.inf)
+            candidates = value.clone()
             for _ in range(self.config.neighbors):
-                value, index = candidates.max(1)
-                selected = torch.where(torch.isfinite(value), value, selected)
+                best, index = candidates.max(1)
+                selected = torch.where(torch.isfinite(best), best, selected)
                 candidates.masked_fill_(
                     (reference_positions[None] >= index[:, None] - exclusion)
                     & (reference_positions[None] < index[:, None] + exclusion),
                     -torch.inf,
                 )
             chunks.append(selected)
-        similarity = torch.cat(chunks)
-        anomaly = -torch.nan_to_num(similarity, nan=0.0, neginf=0.0, posinf=0.0)
-        minimum = anomaly.min()
-        maximum = anomaly.max()
-        return (anomaly - minimum) / (maximum - minimum).clamp_min(self.config.epsilon)
+        anomaly = -torch.cat(chunks)
+        # Only finite scores take part in the min-max scaling; the original
+        # maps the remaining non-finite entries to zero afterwards.
+        finite = torch.isfinite(anomaly)
+        if not finite.any():
+            return anomaly.new_zeros(anomaly.shape)
+        valid_values = anomaly[finite]
+        minimum = valid_values.min()
+        maximum = valid_values.max()
+        if maximum > minimum:
+            scaled = (anomaly - minimum) / (maximum - minimum)
+            return torch.where(finite, scaled, anomaly.new_zeros(()))
+        return anomaly.new_zeros(anomaly.shape)
 
     def _align(self, window_scores: Tensor, output_length: int) -> Tensor:
         length = self.config.subsequence_length
@@ -115,26 +163,39 @@ class MMPAD(nn.Module):
             name="series",
         )
         with evaluation_mode(self):
-            query_batches = self._patches(series)
+            query_patches, query_valid = self._patches(series)
             outputs: list[Tensor] = []
             if self.reference_patches.numel():
                 if self.reference_patches.shape[-1] != series.shape[-1]:
                     raise ValueError(
                         "series feature count differs from the fitted reference"
                     )
-                reference = self.reference_patches.to(query_batches)
-                for query in query_batches:
+                reference = self.reference_patches.to(query_patches)
+                reference_valid = self.reference_valid.to(query_patches.device)
+                for query, valid in zip(query_patches, query_valid):
                     outputs.append(
                         self._align(
-                            self._window_scores(query, reference, self_join=False),
+                            self._window_scores(
+                                query,
+                                valid,
+                                reference,
+                                reference_valid,
+                                self_join=False,
+                            ),
                             series.shape[1],
                         )
                     )
             else:
-                for query in query_batches:
+                for query, valid in zip(query_patches, query_valid):
                     outputs.append(
                         self._align(
-                            self._window_scores(query, query, self_join=True),
+                            self._window_scores(
+                                query,
+                                valid,
+                                query,
+                                valid,
+                                self_join=True,
+                            ),
                             series.shape[1],
                         )
                     )

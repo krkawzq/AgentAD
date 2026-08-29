@@ -18,6 +18,8 @@ class CARLAPretextLightningModule(L.LightningModule):
         self.config = config
         self.model = model or CARLA(config)
         self._previous_loss: Tensor | None = None
+        self._best_epoch_loss: float | None = None
+        self._best_epoch_state: dict[str, Tensor] | None = None
 
     def forward(self, windows: Tensor) -> Tensor:
         return self.model.project(windows)
@@ -71,6 +73,24 @@ class CARLAPretextLightningModule(L.LightningModule):
 
     def validation_step(self, batch: object, batch_idx: int) -> Tensor:
         return self._step(batch, "val")
+
+    def on_train_epoch_end(self) -> None:
+        # The original pretext stage keeps the weights of the best training
+        # epoch, with ties resolved in favor of the latest epoch.
+        metric = self.trainer.callback_metrics.get("train/loss")
+        if metric is None:
+            return
+        value = float(metric)
+        if self._best_epoch_loss is None or value <= self._best_epoch_loss:
+            self._best_epoch_loss = value
+            self._best_epoch_state = {
+                key: tensor.detach().cpu().clone()
+                for key, tensor in self.state_dict().items()
+            }
+
+    def on_train_end(self) -> None:
+        if self._best_epoch_state is not None:
+            self.load_state_dict(self._best_epoch_state)
 
     def configure_optimizers(self) -> dict[str, object]:
         optimizer = torch.optim.Adam(

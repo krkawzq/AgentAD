@@ -326,8 +326,11 @@ class TimeRCD(nn.Module):
             raise ValueError("batch_size must be positive")
         with evaluation_mode(self):
             mean = series.mean(1, keepdim=True)
-            scale = series.std(1, keepdim=True, unbiased=False).clamp_min(
-                self.config.epsilon
+            # The original replaces only exactly-constant channels instead of
+            # clamping small scales.
+            scale = series.std(1, keepdim=True, unbiased=False)
+            scale = torch.where(
+                scale == 0, scale.new_full((), 1e-8), scale
             )
             normalized = (series - mean) / scale
             batch, time, features = normalized.shape

@@ -8,15 +8,21 @@ import lightning as L
 import torch
 from torch import Tensor
 
+from .._utils import ValidationEarlyStopping
 from .config import XLSTMADConfig
 from .model import XLSTMAD
 
 
-class XLSTMADLightningModule(L.LightningModule):
+class XLSTMADLightningModule(ValidationEarlyStopping, L.LightningModule):
     def __init__(self, config: XLSTMADConfig) -> None:
         super().__init__()
         self.config = config
         self.model = XLSTMAD(config)
+        self._init_validation_early_stopping(
+            monitor="val/loss",
+            patience=config.early_stopping_patience,
+            min_delta=config.early_stopping_min_delta,
+        )
 
     def forward(self, windows: Tensor):
         return self.model(windows)

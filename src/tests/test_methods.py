@@ -222,6 +222,15 @@ def test_aerca_losses_scores_causality_and_root_causes():
     assert_finite_shape(model.causal_graph(series), (2, 3, 3))
     model.calibrate_root_causes(series)
     assert_finite_shape(model.root_cause_score(series), (2, 12, 3))
+    # Smoothness regularizes across adjacent lags, so order-one models have
+    # no smoothness term, exactly like the original implementation.
+    single = AERCA(
+        AERCAConfig(input_features=3, window=1, hidden_dim=8, hidden_layers=2)
+    )
+    single_losses = single.compute_loss(torch.randn(2, 12, 3))
+    assert float(single_losses.encoder_smoothness) == 0.0
+    assert float(single_losses.decoder_smoothness) == 0.0
+    assert torch.isfinite(single_losses.total)
 
 
 def test_carla_two_stage_losses_neighbor_mining_and_scores():
@@ -263,7 +272,8 @@ def test_carla_two_stage_losses_neighbor_mining_and_scores():
     rows = torch.arange(8)[:, None]
     assert not (nearest == rows).any()
     assert not (furthest == rows).any()
-    features = torch.nn.functional.normalize(model.encode(anchors), dim=1)
+    # Mining happens in the pretext projection space.
+    features = model.project(anchors)
     similarity = features @ features.T
     similarity.fill_diagonal_(-torch.inf)
     assert torch.equal(nearest, similarity.topk(2, dim=1).indices)
@@ -582,8 +592,24 @@ def test_paano_training_memory_and_point_scores():
     losses.total.backward()
 
     model.eval()
-    model.build_memory_bank(patches)
+    memory = model.build_memory_bank(patches)
+    # The coreset keeps one representative per MiniBatchKMeans cluster; with
+    # 16 patches that is min(500, 16 - 1) = 15 clusters.
+    assert memory.shape[0] == 15
     assert_finite_shape(model.score(torch.randn(2, 12, 2)), (2, 12))
+
+
+def test_mmpad_flat_channels_are_excluded_like_the_original():
+    generator = torch.Generator().manual_seed(4)
+    series = torch.randn(1, 16, 2, generator=generator)
+    flat = series.clone()
+    flat[..., 1] = 5.0
+    model = MMPAD(
+        MMPADConfig(subsequence_length=4, dimensions=1, neighbors=1),
+    )
+    # A flat channel is invalid and must not contribute a zero correlation;
+    # the score equals the single-varying-channel score.
+    assert torch.allclose(model.score(flat), model.score(series[..., :1]))
 
 
 def test_scatterad_losses_target_update_and_score():

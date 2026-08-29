@@ -8,11 +8,12 @@ import lightning as L
 import torch
 from torch import Tensor
 
+from .._utils import ValidationEarlyStopping
 from .config import TSPulseConfig
 from .model import TSPulseFineTune
 
 
-class TSPulseLightningModule(L.LightningModule):
+class TSPulseLightningModule(ValidationEarlyStopping, L.LightningModule):
     def __init__(
         self,
         config: TSPulseConfig,
@@ -24,6 +25,11 @@ class TSPulseLightningModule(L.LightningModule):
         if config.finetune_freeze_backbone:
             for parameter in self.model.core.backbone.parameters():
                 parameter.requires_grad_(False)
+        self._init_validation_early_stopping(
+            monitor="val/loss",
+            patience=config.finetune_early_stopping_patience,
+            min_delta=config.finetune_early_stopping_threshold,
+        )
 
     def forward(
         self,

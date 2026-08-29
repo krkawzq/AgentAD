@@ -9,15 +9,20 @@ import lightning as L
 import torch
 from torch import Tensor
 
+from .._utils import ValidationEarlyStopping
 from .config import CrossADConfig
 from .model import CrossAD
 
 
-class CrossADLightningModule(L.LightningModule):
+class CrossADLightningModule(ValidationEarlyStopping, L.LightningModule):
     def __init__(self, config: CrossADConfig | None = None) -> None:
         super().__init__()
         self.config = config or CrossADConfig.original_msl()
         self.model = CrossAD(self.config)
+        self._init_validation_early_stopping(
+            monitor="val/loss",
+            patience=self.config.patience,
+        )
 
     def forward(self, series: Tensor):
         return self.model(series)

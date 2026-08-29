@@ -78,7 +78,8 @@ class ScatterADConfig:
 
     @classmethod
     def original_nips_water(cls) -> Self:
-        return cls._original(9)
+        # The original Water loader connects each step to its ±2 neighborhood.
+        return cls(input_features=9, graph_radius=2)
 
     @classmethod
     def original_nips_swan(cls) -> Self:

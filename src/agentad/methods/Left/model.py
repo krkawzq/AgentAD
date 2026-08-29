@@ -205,6 +205,7 @@ class _CrossAttentionBlock(nn.Module):
             dropout=config.fusion_dropout,
             batch_first=True,
         )
+        self.output_dropout = nn.Dropout(config.fusion_dropout)
         self.feedforward_norm = nn.LayerNorm(config.model_dim)
         activation: nn.Module = nn.ReLU() if config.activation == "relu" else nn.GELU()
         self.feedforward = nn.Sequential(
@@ -224,7 +225,7 @@ class _CrossAttentionBlock(nn.Module):
             normalized_context,
             need_weights=False,
         )
-        query = query + attended
+        query = query + self.output_dropout(attended)
         return query + self.feedforward(self.feedforward_norm(query))
 
 
@@ -399,10 +400,10 @@ class Left(nn.Module):
             nn.Linear(config.latent_fusion_hidden, config.model_dim),
         )
         self.time_decoder = nn.Sequential(
-            nn.Linear(config.model_dim, config.cycle_decoder_hidden),
+            nn.Linear(config.model_dim, config.model_dim),
             nn.GELU(),
             nn.Linear(
-                config.cycle_decoder_hidden,
+                config.model_dim,
                 config.sequence_length * config.input_features,
             ),
         )
@@ -410,9 +411,9 @@ class Left(nn.Module):
         frames = config.sequence_length // config.hop_length + 1
         self.frequency_shape = (config.input_features, 2, frequencies, frames)
         self.frequency_decoder = nn.Sequential(
-            nn.Linear(config.model_dim, config.cycle_decoder_hidden),
+            nn.Linear(config.model_dim, config.model_dim),
             nn.GELU(),
-            nn.Linear(config.cycle_decoder_hidden, math.prod(self.frequency_shape)),
+            nn.Linear(config.model_dim, math.prod(self.frequency_shape)),
         )
         self.temporal_lengths = tuple(
             math.ceil(config.sequence_length / factor)

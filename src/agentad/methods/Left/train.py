@@ -9,15 +9,20 @@ import lightning as L
 import torch
 from torch import Tensor
 
+from .._utils import ValidationEarlyStopping
 from .config import LeftConfig
 from .model import Left
 
 
-class LeftLightningModule(L.LightningModule):
+class LeftLightningModule(ValidationEarlyStopping, L.LightningModule):
     def __init__(self, config: LeftConfig) -> None:
         super().__init__()
         self.config = config
         self.model = Left(config)
+        self._init_validation_early_stopping(
+            monitor="val/loss",
+            patience=config.patience,
+        )
 
     def forward(self, series: Tensor):
         return self.model(series)

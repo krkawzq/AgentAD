@@ -24,6 +24,7 @@ class PaAnoConfig:
     pretext_weight: float = 1.0
     random_negatives: int = 5
     top_k: int = 3
+    memory_coreset_fraction: float | None = 0.1
     training_iterations: int = 200
     batch_size: int = 512
     learning_rate: float = 1e-4
@@ -65,6 +66,12 @@ class PaAnoConfig:
             raise ValueError("pretext_fraction must be in [0, 1]")
         if self.pretext_weight < 0:
             raise ValueError("pretext_weight must be non-negative")
+        if self.memory_coreset_fraction is not None and not (
+            0 < self.memory_coreset_fraction <= 1
+        ):
+            raise ValueError(
+                "memory_coreset_fraction must be in (0, 1] when provided"
+            )
         if self.learning_rate <= 0 or self.weight_decay < 0:
             raise ValueError("learning_rate must be positive and weight_decay non-negative")
         if not 0 < self.final_learning_rate_factor <= 1:

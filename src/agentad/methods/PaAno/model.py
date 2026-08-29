@@ -269,9 +269,51 @@ class PaAno(nn.Module):
             triplet + current_weight * pretext, triplet, pretext, current_weight
         )
 
+    def _select_coreset(self, embeddings: Tensor) -> Tensor:
+        """Keep the sample closest to each MiniBatchKMeans cluster center.
+
+        This replicates the original ``create_memory_bank`` coreset: at least
+        ``min(500, N - 1)`` clusters (or a fraction of the patch count when
+        larger), then one representative embedding per cluster.
+        """
+        fraction = self.config.memory_coreset_fraction
+        count = embeddings.shape[0]
+        if fraction is None or count < 2:
+            return embeddings
+        target = int(round(fraction * count))
+        minimum = min(500, max(1, count - 1))
+        clusters = max(minimum, min(target, count - 1))
+        if clusters >= count:
+            return embeddings
+        try:
+            from sklearn.cluster import MiniBatchKMeans
+        except ImportError as exc:  # pragma: no cover - dependency is pinned
+            raise ImportError(
+                "PaAno coreset selection requires scikit-learn. Run `uv sync`."
+            ) from exc
+        normalized = F.normalize(embeddings, dim=1, eps=1e-12)
+        clustering = MiniBatchKMeans(
+            n_clusters=clusters,
+            init="k-means++",
+            random_state=42,
+            batch_size=max(8192, clusters),
+            max_iter=50,
+            n_init=1,
+            reassignment_ratio=0.01,
+        )
+        clustering.fit(normalized.detach().cpu().numpy())
+        centers = torch.as_tensor(
+            clustering.cluster_centers_,
+            dtype=normalized.dtype,
+            device=normalized.device,
+        )
+        # One representative per cluster: the sample closest to each center.
+        core_indices = torch.cdist(normalized, centers).argmin(0)
+        return embeddings.index_select(0, core_indices)
+
     @torch.inference_mode()
     def build_memory_bank(self, patches: Tensor, *, batch_size: int = 2048) -> Tensor:
-        """Encode normal patches and retain their embeddings as the scoring bank."""
+        """Encode normal patches and retain a coreset as the scoring bank."""
         if patches.ndim != 3 or patches.shape[0] == 0:
             raise ValueError(
                 "patches must be a non-empty [patch, feature, time] tensor"
@@ -280,7 +322,8 @@ class PaAno(nn.Module):
             raise ValueError("batch_size must be positive")
         with evaluation_mode(self):
             embeddings = [self.encoder(chunk) for chunk in patches.split(batch_size)]
-            memory = F.normalize(torch.cat(embeddings), dim=1, eps=1e-12).detach()
+            selected = self._select_coreset(torch.cat(embeddings))
+            memory = F.normalize(selected, dim=1, eps=1e-12).detach()
             self.normal_memory = memory
             return memory
 

@@ -93,18 +93,21 @@ class AERCA(nn.Module):
 
     def _kl_standard_normal(self, residuals: Tensor) -> Tensor:
         samples = residuals.flatten(0, 1)
-        centered = samples - samples.mean(0)
+        mean = samples.mean(0)
+        centered = samples - mean
         covariance = centered.T @ centered / max(samples.shape[0] - 1, 1)
-        scale = covariance.diagonal().mean().detach().clamp_min(1.0)
+        # The original regularizes by the condition number so that stiff
+        # covariance matrices receive proportionally stronger shrinkage.
+        eigenvalues = torch.linalg.eigvalsh(covariance)
+        condition = eigenvalues.max() / eigenvalues.clamp_min(1e-9).min()
         covariance = covariance + torch.eye(
             self.config.input_features,
             device=samples.device,
             dtype=samples.dtype,
-        ) * (self.config.covariance_epsilon * scale)
+        ) * (self.config.covariance_epsilon * condition)
         sign, logdet = torch.linalg.slogdet(covariance)
         if torch.any(sign <= 0):
             raise RuntimeError("residual covariance is not positive definite")
-        mean = samples.mean(0)
         return (
             covariance.trace()
             + mean.square().sum()
@@ -213,10 +216,13 @@ class AERCA(nn.Module):
 
     @staticmethod
     def _smoothness(coefficients: Tensor) -> Tensor:
-        if coefficients.shape[1] < 2:
+        # Smoothness is measured across adjacent lags within each window's
+        # coefficient set, matching the original GVAR regularizer; it vanishes
+        # for order-one (window=1) models.
+        if coefficients.shape[2] < 2:
             return coefficients.new_zeros(())
-        difference = coefficients[:, 1:] - coefficients[:, :-1]
-        return torch.linalg.vector_norm(difference, ord=2, dim=1).mean()
+        difference = coefficients[:, :, 1:] - coefficients[:, :, :-1]
+        return torch.linalg.vector_norm(difference, ord=2, dim=2).mean()
 
     def compute_loss(self, x: Tensor) -> AERCALoss:
         output = self(x)
