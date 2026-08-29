@@ -71,7 +71,7 @@ def main() -> None:
             f"https://drive.google.com/uc?id={FILE_ID}",
             str(archive_path),
             quiet=False,
-            continue_ok=True,
+            resume=True,
         )
     if not zipfile.is_zipfile(archive_path):
         raise ValueError(f"TFB dataset download is not a ZIP archive: {archive_path}")

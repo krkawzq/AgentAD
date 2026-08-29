@@ -28,6 +28,9 @@ class DADAConfig:
     normalization: bool = False
     variance_weight: float = 1.0
     random_seed: int = 2024
+    # Path to the published Hugging Face checkpoint; the Lightning module
+    # loads it on construction so zero-shot scoring uses the released weights.
+    reference_checkpoint: str | None = None
 
     def __post_init__(self) -> None:
         positive = {

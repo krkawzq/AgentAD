@@ -14,6 +14,13 @@ from .config import ScatterADConfig
 
 
 class _TemporalBlock(nn.Module):
+    """Temporal convolution over the time axis.
+
+    The vendored fork flattens each PyG batch into a node matrix before this
+    block, so its kernel-3 convolution runs on a length-one axis and reduces
+    to a point-wise linear map. This implementation runs the convolution the
+    fork's own docstring describes, mixing adjacent time steps.
+    """
     def __init__(self, input_dim: int, output_dim: int, kernel: int) -> None:
         super().__init__()
         self.conv = nn.Conv1d(input_dim, output_dim, kernel, padding=kernel // 2)
@@ -131,6 +138,9 @@ class ScatterAD(nn.Module):
             nn.Linear(2 * config.hidden_dim, config.hidden_dim),
             nn.LayerNorm(config.hidden_dim),
         )
+        # The original normalizes a 1-D center with norm(dim=1), which errors
+        # in PyTorch; the whole-vector norm implements its evident intent,
+        # with a zero-norm guard the original lacks.
         center = torch.randn(config.hidden_dim)
         center = (
             center
@@ -160,18 +170,31 @@ class ScatterAD(nn.Module):
             center[None, None, :],
             dim=2,
         ).mean()
+        # Each window contributes only in-window adjacent pairs; the original
+        # flattens shuffled batches into node lists, so its version also mixes
+        # unrelated window boundaries.
         temporal = F.mse_loss(output.prediction[:, 1:], output.prediction[:, :-1])
-        forward_consistency = F.cosine_similarity(
-            output.prediction[:, :-1], output.target_hidden[:, 1:], dim=2
-        )
-        backward_consistency = F.cosine_similarity(
-            output.prediction[:, 1:], output.target_hidden[:, :-1], dim=2
-        )
+        # The original derives the consistency pairs from the loader's directed
+        # edges: offsets 1..radius in both directions (the Water configuration
+        # ships radius 2, the remaining datasets radius 1).
+        pairs: list[Tensor] = []
+        for offset in range(1, self.config.graph_radius + 1):
+            pairs.append(
+                F.cosine_similarity(
+                    output.prediction[:, :-offset],
+                    output.target_hidden[:, offset:],
+                    dim=2,
+                )
+            )
+            pairs.append(
+                F.cosine_similarity(
+                    output.prediction[:, offset:],
+                    output.target_hidden[:, :-offset],
+                    dim=2,
+                )
+            )
         consistency = (
-            -torch.cat((forward_consistency, backward_consistency), dim=1)
-            .sigmoid()
-            .log()
-            .mean()
+            -torch.cat(pairs, dim=1).sigmoid().log().mean()
         )
         return ScatterADLoss(
             scattering + temporal + consistency,
@@ -197,6 +220,8 @@ class ScatterAD(nn.Module):
             raise ValueError("x feature count does not match the ScatterAD config")
         with evaluation_mode(self):
             hidden, _ = self.online_encoder(x)
+            # The trailing time step of each window gets a zero difference;
+            # the original's flattened batches give it a cross-window pair.
             temporal = (hidden[:, 1:] - hidden[:, :-1]).square().mean(dim=2)
             temporal = F.pad(temporal, (0, 1))
             distance = torch.linalg.vector_norm(

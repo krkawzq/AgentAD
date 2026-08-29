@@ -195,12 +195,11 @@ class TSPulseConfig:
 
     @classmethod
     def original_tsb_zero_shot(cls, *, input_features: int = 1) -> Self:
-        channel_mode: Literal["common", "mix"] = (
-            "common" if input_features == 1 else "mix"
-        )
+        # TSB-AD always fine-tunes and scores with the common-channel decoder,
+        # regardless of the input feature count.
         return cls(
             input_features=input_features,
-            decoder_channel_mode=channel_mode,
+            decoder_channel_mode="common",
             mask_type="user",
             aggregation_length=96,
             pretrained_model_name="ibm-granite/granite-timeseries-tspulse-r1",

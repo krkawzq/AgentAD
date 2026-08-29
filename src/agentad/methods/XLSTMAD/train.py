@@ -68,6 +68,9 @@ class XLSTMADLightningModule(ValidationEarlyStopping, L.LightningModule):
     def predict_step(
         self, batch: object, batch_idx: int, dataloader_idx: int = 0
     ) -> Tensor:
+        # The original predict_step compares the reconstruction against the
+        # label tensor and cannot run; scoring follows its test_step, which
+        # reconstructs the input windows.
         windows, _ = self._batch(batch)
         return self.model.window_score(windows)
 

@@ -152,8 +152,13 @@ class TSPulse(nn.Module):
     def _generate_training_mask(self, series: Tensor) -> Tensor:
         """Hide one random patch inside the aggregation window per sample.
 
-        This mirrors the TSB-AD ``PatchMaskingDatasetWrapper`` fine-tuning
-        recipe, which guarantees at least one hidden patch for every window.
+        The reference fine-tuning wraps every window in
+        ``PatchMaskingDatasetWrapper``, which enumerates one sample per patch
+        of the aggregation window so each patch is hidden exactly once per
+        epoch. Passing an ``observed_mask`` built from such an enumerated
+        dataset reproduces that recipe; this fallback instead draws one
+        random patch per window and epoch, which keeps the masking
+        distribution but shrinks each epoch by that factor.
         """
         batch, time, channels = series.shape
         mask = torch.ones(
@@ -235,14 +240,21 @@ class TSPulse(nn.Module):
         """Zero-padded moving average matching ``np.convolve(..., mode="same")``."""
         window = self.config.smoothing_window
         kernel = score.new_full((1, 1, window), 1 / window)
-        left = (window - 1) // 2
-        right = window // 2
+        # np.convolve "same" left-pads by w // 2, which shifts even windows
+        # one position left of a symmetric kernel.
+        left = window // 2
+        right = (window - 1) // 2
         return F.conv1d(F.pad(score[:, None], (left, right)), kernel)[:, 0]
 
     def _align_reconstruction_scores(self, score: Tensor, length: int) -> Tensor:
-        aggregation = min(self.config.aggregation_length, self.context_length)
-        left = self.context_length - aggregation // 2
-        right = length - left - score.shape[1]
+        # Reference padding: context - aggregation//2 replicated values on the
+        # left and aggregation//2 on the right, applied to the T - context
+        # windows that exclude the final context window.
+        aggregation = self.config.aggregation_length
+        left = max(0, self.context_length - aggregation // 2)
+        right = aggregation // 2
+        if left + score.shape[1] + right < length:
+            right = length - left - score.shape[1]
         return torch.cat(
             (
                 score[:, :1].expand(-1, left),
@@ -255,7 +267,7 @@ class TSPulse(nn.Module):
     def _reconstruction_window_score(
         self, windows: Tensor, *, frequency: bool
     ) -> Tensor:
-        aggregation = min(self.config.aggregation_length, self.context_length)
+        aggregation = self.config.aggregation_length
         if aggregation < self.patch_length or aggregation % self.patch_length:
             raise ValueError(
                 "aggregation_length must be at least and divisible by patch_length"
@@ -274,8 +286,45 @@ class TSPulse(nn.Module):
         if isinstance(stitched, tuple):
             stitched = stitched[0]
         reconstructed = stitched[key]
+        # The raw start keeps the reference's slicing semantics, including the
+        # negative index when aggregation exceeds the context length.
         start = self.context_length - aggregation
         return (reconstructed[:, start:] - windows[:, start:]).square().mean((1, 2))
+
+    def _least_significant_gate(
+        self, score: Tensor, series: Tensor, *, predictive: bool
+    ) -> tuple[Tensor, Tensor]:
+        """Apply the reference least-significant-score gating.
+
+        The reference scales scores above ``least_significant_scale`` times the
+        squared NaN-standard-deviation of the series' first differences by
+        ``1 / least_significant_score`` and otherwise rescales the whole
+        series; the TSB-AD defaults make both operations identities.
+        """
+        difference = series[:, 1:] - series[:, :-1]
+        # NaN-aware standard deviation with ddof=0, as np.nanstd in the
+        # reference.
+        finite = torch.isfinite(difference)
+        count = finite.sum(dim=1, keepdim=True)
+        filled = torch.where(finite, difference, torch.zeros_like(difference))
+        mean = filled.sum(dim=1, keepdim=True) / count.clamp_min(1)
+        centered = torch.where(finite, difference - mean, torch.zeros_like(difference))
+        variance = centered.square().sum(dim=1, keepdim=True) / count.clamp_min(1)
+        minimum = self.config.least_significant_scale * variance[:, 0]
+        if minimum.shape[-1] != 1:
+            minimum = minimum.amax(-1, keepdim=True)
+        if predictive:
+            minimum = minimum * (2.0**0.5)
+        else:
+            minimum = minimum * (1 + self.patch_length)
+        above = score > minimum
+        adjusted = torch.where(above, score / self.config.least_significant_score, score)
+        scale = torch.where(
+            above.any(1, keepdim=True),
+            score.new_ones(()),
+            score.new_full((), self.config.least_significant_score),
+        )
+        return adjusted, scale
 
     @torch.inference_mode()
     def score(self, series: Tensor, *, batch_size: int = 128) -> Tensor:
@@ -285,9 +334,15 @@ class TSPulse(nn.Module):
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
         with evaluation_mode(self):
-            series = self._standardize_series(series)
+            # The reference pipeline imputes NaN inputs with zero before the
+            # channel-wise standardization.
+            series = self._standardize_series(torch.nan_to_num(series, nan=0.0))
             windows = sliding_windows(series, self.context_length)
-            flattened = windows.flatten(0, 1)
+            # The reference dataset keeps the T - context windows that leave
+            # room for one forecast target, so reconstruction modes exclude
+            # the final context window as well.
+            scored = windows[:, :-1] if windows.shape[1] > 1 else windows
+            flattened = scored.flatten(0, 1)
             mode_scores: list[Tensor] = []
             for mode in self.config.score_modes:
                 if mode == "forecast":
@@ -320,13 +375,22 @@ class TSPulse(nn.Module):
                     ]
                     score = torch.cat(values).reshape(series.shape[0], -1)
                     score = self._align_reconstruction_scores(score, series.shape[1])
-                # Reference order: exponent, min-max, then per-mode smoothing.
-                score = self._normalize_score(score.pow(self.config.score_exponent))
+                # Reference order: least-significant gate, exponent, min-max
+                # with the gate's scale, then per-mode smoothing.
+                score, scale = self._least_significant_gate(
+                    score, series, predictive=mode == "forecast"
+                )
+                score = self._normalize_score(
+                    score.pow(self.config.score_exponent)
+                ) * scale
                 if mode != "forecast" and self.config.smoothing_window > 1:
                     score = self._moving_average(score)
                 mode_scores.append(score)
             combined = torch.stack(mode_scores).max(0).values
-            return combined / (combined.amax(1, keepdim=True) + 1e-5)
+            # The reference divides by np.nanmax per series, so NaN entries
+            # stay NaN and an all-NaN series stays NaN as well.
+            finite = combined.masked_fill(torch.isnan(combined), -torch.inf)
+            return combined / (finite.amax(1, keepdim=True) + 1e-5)
 
 
 class TSPulseZeroShot(TSPulse):

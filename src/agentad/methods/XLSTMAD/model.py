@@ -107,6 +107,11 @@ class XLSTMAD(nn.Module):
 
     @torch.inference_mode()
     def score(self, series: Tensor, *, batch_size: int = 256) -> Tensor:
+        """Return per-window scores aligned to each window's last time step.
+
+        The first ``window_length - 1`` points are zero padding; the original
+        produces no scores for them.
+        """
         series = validate_series(
             series, min_length=self.config.window_length, name="series"
         )

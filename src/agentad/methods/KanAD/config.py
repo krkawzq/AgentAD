@@ -17,8 +17,6 @@ class KANADConfig:
     learning_rate: float = 0.01
     scheduler_step_size: int = 5
     scheduler_gamma: float = 0.75
-    preprocessing: str = "z-score"
-    difference_order: int = 1
 
     def __post_init__(self) -> None:
         if self.window <= 1:
@@ -35,12 +33,16 @@ class KANADConfig:
             raise ValueError("learning_rate and scheduler_step_size must be positive")
         if not 0 < self.scheduler_gamma <= 1:
             raise ValueError("scheduler_gamma must be in (0, 1]")
-        if self.difference_order < 0:
-            raise ValueError("difference_order must be non-negative")
 
     @classmethod
     def original_default(cls) -> Self:
-        """Configuration from ``forks/KAN-AD/kanad/config.toml``."""
+        """Configuration from ``forks/KAN-AD/kanad/config.toml``.
+
+        The toml additionally declares ``[Data_Params]`` (z-score preprocessing
+        and first-order differencing) that the original EasyTSAD data factory
+        applied outside the method; this package expects the caller to
+        preprocess equivalently instead of carrying unused fields.
+        """
         return cls()
 
     @classmethod

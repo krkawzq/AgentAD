@@ -9,7 +9,13 @@ from typing import Self
 
 @dataclass(frozen=True, slots=True)
 class MMPADConfig:
-    subsequence_length: int
+    """MMPAD configuration.
+
+    ``subsequence_length=None`` mirrors the original submission, which infers
+    the window length from the first channel's autocorrelation.
+    """
+
+    subsequence_length: int | None = None
     dimensions: int | float | None = None
     neighbors: int = 1
     exclusion_fraction: float = 0.5
@@ -18,11 +24,11 @@ class MMPADConfig:
     epsilon: float = 1e-6
     sorting_place: Literal["pre"] = "pre"
     mode: Literal["discord"] = "discord"
-    flat_mode: Literal["eps"] = "eps"
+    flat_mode: Literal["invalid"] = "invalid"
     use_train_reference: bool = False
 
     def __post_init__(self) -> None:
-        if self.subsequence_length <= 1:
+        if self.subsequence_length is not None and self.subsequence_length <= 1:
             raise ValueError("subsequence_length must be greater than one")
         if self.neighbors <= 0 or self.query_chunk_size <= 0:
             raise ValueError("neighbors and query_chunk_size must be positive")

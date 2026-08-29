@@ -158,6 +158,13 @@ class _TimeSeriesEncoder(nn.Module):
         self.projection_layer = nn.Linear(
             config.model_dim, config.patch_length * config.projection_dim
         )
+        # The original encoder zeroes every parameter whose full name contains
+        # "bias" after construction (its weight branch never matches), which
+        # also covers the binary-feature Embedding weight; from-scratch
+        # pretraining starts from those zeroed parameters.
+        for name, parameter in self.named_parameters():
+            if "bias" in name:
+                nn.init.zeros_(parameter)
 
     def forward(self, series: Tensor, valid_mask: Tensor) -> Tensor:
         batch, time, features = series.shape
@@ -304,6 +311,9 @@ class TimeRCD(nn.Module):
         else:
             if labels.shape != series.shape[:2]:
                 raise ValueError("labels must have shape [batch, time]")
+            # The original binarizes labels before its padding check, so -1
+            # padding is silently treated as class 0; excluding the padding
+            # first follows the original's documented intent.
             valid = labels.flatten() >= 0
             classification = (
                 F.cross_entropy(
@@ -313,6 +323,8 @@ class TimeRCD(nn.Module):
                 if valid.any()
                 else reconstruction.new_zeros(())
             )
+        # The vendored inference-only package defines no training loop, so the
+        # equal-weight combination is the natural reading of its two losses.
         total = (
             self.config.reconstruction_weight * reconstruction
             + self.config.classification_weight * classification

@@ -287,8 +287,14 @@ class CARLA(nn.Module):
         anchors: Tensor,
         nearest: Tensor,
         furthest: Tensor,
+        anchor_probabilities: list[Tensor] | None = None,
     ) -> CARLALoss:
-        """Optimize neighbor consistency, furthest-neighbor separation, and entropy."""
+        """Optimize neighbor consistency, furthest-neighbor separation, and entropy.
+
+        ``anchor_probabilities``, when provided, is filled with the detached
+        per-head anchor softmax outputs so callers can track cluster
+        assignments without an extra forward pass.
+        """
         if anchors.shape != nearest.shape or anchors.shape != furthest.shape:
             raise ValueError("anchors, nearest, and furthest must have equal shape")
         # The original classification stage runs three separate forward passes
@@ -305,6 +311,8 @@ class CARLA(nn.Module):
             anchor_probability = anchor_logits.softmax(1)
             nearest_probability = nearest_logits.softmax(1)
             furthest_probability = furthest_logits.softmax(1)
+            if anchor_probabilities is not None:
+                anchor_probabilities.append(anchor_probability.detach())
             nearest_similarity = (anchor_probability * nearest_probability).sum(1)
             furthest_similarity = (anchor_probability * furthest_probability).sum(1)
             consistency_terms.append(

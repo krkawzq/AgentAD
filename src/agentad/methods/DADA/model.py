@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -225,10 +226,11 @@ class _WarmGradientReversal(nn.Module):
         )
 
     def forward(self, x: Tensor) -> Tensor:
-        progress = (self.steps.to(x.dtype) / self.total_steps).clamp(max=1)
+        # The original constructs the layer with auto_step=True: every forward
+        # pass advances the counter, and the progress is never clamped.
+        progress = self.steps.to(x.dtype) / self.total_steps
         coefficient = self.maximum * (2 / (1 + torch.exp(-progress)) - 1)
-        if self.training:
-            self.steps.add_(1)
+        self.steps.add_(1)
         return _ReverseGradient.apply(x, coefficient)
 
 
@@ -401,8 +403,15 @@ class DADA(nn.Module):
         normalize: bool = False,
         variance_weight: float = 1.0,
         generator: torch.Generator | None = None,
+        error_fn: Callable[[Tensor, Tensor], Tensor] | None = None,
     ) -> Tensor:
-        """Return masked-copy uncertainty, optionally mixed with reconstruction error."""
+        """Return masked-copy uncertainty, optionally mixed with reconstruction error.
+
+        ``error_fn`` replaces the default per-point squared error of the mixed
+        path, mirroring the original's injectable ``anomaly_criterion``; its
+        output is averaged over the channel dimension like the original's
+        ``torch.mean(recon_score, dim=-1)``.
+        """
         if not 0 <= variance_weight <= 1:
             raise ValueError("variance_weight must be in [0, 1]")
         if self.config.copies < 2:
@@ -412,7 +421,13 @@ class DADA(nn.Module):
             uncertainty = output.reconstructions.var(dim=0, unbiased=True).mean(dim=2)
             if variance_weight == 1:
                 return uncertainty
-            reconstruction = (output.reconstructions.mean(0) - x).square().mean(dim=2)
+            mean_reconstruction = output.reconstructions.mean(0)
+            if error_fn is None:
+                reconstruction = (
+                    mean_reconstruction - x
+                ).square().mean(dim=2)
+            else:
+                reconstruction = error_fn(mean_reconstruction, x).mean(dim=2)
             return (
                 variance_weight * uncertainty + (1 - variance_weight) * reconstruction
             )

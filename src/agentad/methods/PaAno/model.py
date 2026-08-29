@@ -33,8 +33,15 @@ class _RevIN(nn.Module):
             self.register_parameter("bias", None)
 
     def forward(self, x: Tensor) -> Tensor:
-        mean = x.mean(-1, keepdim=True)
-        scale = x.var(-1, keepdim=True, unbiased=False).add(self.epsilon).sqrt()
+        # The original computes the normalization statistics under no_grad, so
+        # gradients reach x directly but never flow through the mean or scale.
+        mean = x.mean(-1, keepdim=True).detach()
+        scale = (
+            x.var(-1, keepdim=True, unbiased=False)
+            .detach()
+            .add(self.epsilon)
+            .sqrt()
+        )
         normalized = (x - mean) / scale.clamp_min(self.min_scale)
         if self.weight is not None:
             normalized = normalized * self.weight + self.bias
@@ -191,9 +198,29 @@ class PaAno(nn.Module):
             generator,
         )
         positives = all_patches.index_select(0, positive_indices)
-        anchor_embeddings, positive_embeddings = self.encoder(
-            torch.cat((anchors, positives), dim=0)
-        ).chunk(2)
+        pretext_horizon = total_iterations * self.config.pretext_fraction
+        pretext_active = (
+            iteration < pretext_horizon and self.config.pretext_weight > 0
+        )
+        if pretext_active:
+            # The original embeds anchors, positives, and the full pretext
+            # batch (invalid rows as zero patches) in one forward pass so the
+            # batch-normalization statistics cover all three roles.
+            previous_indices = anchor_indices - pretext_step
+            valid = previous_indices >= 0
+            gathered = all_patches.index_select(0, previous_indices.clamp_min(0))
+            previous_patches = torch.where(
+                valid.view(-1, 1, 1), gathered, torch.zeros_like(gathered)
+            )
+            anchor_embeddings, positive_embeddings, previous_embeddings = self.encoder(
+                torch.cat((anchors, positives, previous_patches), dim=0)
+            ).chunk(3)
+        else:
+            anchor_embeddings, positive_embeddings = self.encoder(
+                torch.cat((anchors, positives), dim=0)
+            ).chunk(2)
+            valid = None
+            previous_embeddings = None
         anchor_projection = F.normalize(self.encoder.project(anchor_embeddings), dim=1)
         positive_projection = F.normalize(
             self.encoder.project(positive_embeddings), dim=1
@@ -217,21 +244,14 @@ class PaAno(nn.Module):
             * self.config.triplet_scale
         )
 
-        pretext_horizon = max(1, round(total_iterations * self.config.pretext_fraction))
-        if iteration < pretext_horizon and self.config.pretext_weight > 0:
+        if pretext_active:
             current_weight = self.config.pretext_weight * (
                 1 - iteration / pretext_horizon
             )
-            previous_indices = anchor_indices - pretext_step
-            valid = previous_indices >= 0
-            if valid.any():
-                previous = self.encoder(
-                    all_patches.index_select(0, previous_indices[valid])
-                )
-                adjacent = torch.cat((anchor_embeddings[valid], previous), dim=1)
-                adjacent_logits = self.encoder.pretext_head(adjacent).squeeze(1)
-            else:
-                adjacent_logits = anchor_embeddings.new_empty(0)
+            adjacent = torch.cat(
+                (anchor_embeddings[valid], previous_embeddings[valid]), dim=1
+            )
+            adjacent_logits = self.encoder.pretext_head(adjacent).squeeze(1)
 
             count = anchor_embeddings.shape[0]
             anchors_repeated = anchor_embeddings.repeat_interleave(
@@ -376,6 +396,9 @@ class PaAno(nn.Module):
                 for chunk in patches.split(embedding_batch_size)
             ]
             patch_scores = torch.cat(score_chunks).reshape(x.shape[0], windows.shape[1])
+            # The original sanitizes embeddings and similarities with
+            # nan_to_num, so degenerate patches score as perfectly normal.
+            patch_scores = torch.nan_to_num(patch_scores, nan=0.0)
             return overlap_average(
                 patch_scores,
                 patch_length=self.config.patch_length,

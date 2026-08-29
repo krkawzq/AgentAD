@@ -91,11 +91,14 @@ class _EncoderLayer(nn.Module):
         super().__init__()
         self.attention = _Attention(config)
         self.feedforward = _FeedForward(config)
+        # The original applies the ff_dropout rate on the attention residual
+        # branch in addition to the dropout inside the attention projection.
+        self.residual_dropout = nn.Dropout(config.feedforward_dropout)
         self.norm1 = _SequenceNorm(config.model_dim, config.normalization)
         self.norm2 = _SequenceNorm(config.model_dim, config.normalization)
 
     def forward(self, x: Tensor, mask: Tensor) -> Tensor:
-        x = self.norm1(x + self.attention(x, x, x, mask))
+        x = self.norm1(x + self.residual_dropout(self.attention(x, x, x, mask)))
         return self.norm2(x + self.feedforward(x))
 
 
@@ -105,13 +108,16 @@ class _DecoderLayer(nn.Module):
         self.self_attention = _Attention(config)
         self.cross_attention = _Attention(config)
         self.feedforward = _FeedForward(config)
+        self.residual_dropout = nn.Dropout(config.feedforward_dropout)
         self.norm1 = _SequenceNorm(config.model_dim, config.normalization)
         self.norm2 = _SequenceNorm(config.model_dim, config.normalization)
         self.norm3 = _SequenceNorm(config.model_dim, config.normalization)
 
     def forward(self, x: Tensor, context: Tensor, mask: Tensor) -> Tensor:
-        x = self.norm1(x + self.self_attention(x, x, x, mask))
-        x = self.norm2(x + self.cross_attention(x, context, context))
+        x = self.norm1(x + self.residual_dropout(self.self_attention(x, x, x, mask)))
+        x = self.norm2(
+            x + self.residual_dropout(self.cross_attention(x, context, context))
+        )
         return self.norm3(x + self.feedforward(x))
 
 
@@ -120,11 +126,14 @@ class _ExtractorLayer(nn.Module):
         super().__init__()
         self.cross_attention = _Attention(config)
         self.feedforward = _FeedForward(config)
+        self.residual_dropout = nn.Dropout(config.feedforward_dropout)
         self.norm1 = _SequenceNorm(config.model_dim, config.normalization)
         self.norm2 = _SequenceNorm(config.model_dim, config.normalization)
 
     def forward(self, query: Tensor, local: Tensor) -> Tensor:
-        query = self.norm1(query + self.cross_attention(query, local, local))
+        query = self.norm1(
+            query + self.residual_dropout(self.cross_attention(query, local, local))
+        )
         return self.norm2(query + self.feedforward(query))
 
 
@@ -214,12 +223,14 @@ class _ContextMemory(nn.Module):
             self.ema_sum.mul_(self.decay).add_(assigned_sum, alpha=1 - self.decay)
             total = self.ema_count.sum()
             dimension = flat_context.shape[1]
-            smoothed = (
+            # The original writes the Laplace-smoothed counts back into the
+            # EMA state, so later updates accumulate on the smoothed counts.
+            self.ema_count.copy_(
                 (self.ema_count + self.epsilon)
                 / (total + dimension * self.epsilon)
                 * total
             )
-            self.context.copy_(self.ema_sum / smoothed[:, None, None])
+            self.context.copy_(self.ema_sum / self.ema_count[:, None, None])
 
         # The forward value is the full EMA bank; gradients reach selected queries.
         straight_through = assigned_sum + self.context.detach() - assigned_sum.detach()

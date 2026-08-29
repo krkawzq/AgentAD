@@ -284,6 +284,47 @@ def test_carla_two_stage_losses_neighbor_mining_and_scores():
     assert_finite_shape(model.score(torch.randn(2, 12, 2)), (2, 12))
 
 
+def test_carla_pretext_neighbor_positives():
+    config = CARLAConfig(
+        input_features=2,
+        window_length=8,
+        mid_channels=4,
+        projection_dim=6,
+        clusters=3,
+        cluster_heads=2,
+    )
+    module = CARLAPretextLightningModule(config)
+    pool = torch.randn(20, 8, 2)
+    anchors = pool[[15, 5, 19]]
+    batch = {
+        "anchors": anchors,
+        "window_pool": pool,
+        "anchor_indices": torch.tensor([15, 5, 19]),
+    }
+    positives = module._positives(batch, anchors)
+    assert positives.shape == anchors.shape
+    # Windows past the first ten draw one of their ten predecessors.
+    matches = (pool == positives[0].unsqueeze(0)).all(-1).all(-1)
+    assert matches[5:15].any() and not matches[:5].any()
+    # The first ten windows fall back to noise around the anchor.
+    assert not torch.equal(positives[1], anchors[1])
+    # Batches without a pool keep the additive-noise fallback.
+    noisy = module._positives({"anchors": anchors}, anchors)
+    assert noisy.shape == anchors.shape and not torch.equal(noisy, anchors)
+
+
+def test_mmpad_infers_subsequence_length_from_autocorrelation():
+    model = MMPAD(MMPADConfig())
+    t = torch.arange(1500, dtype=torch.float64)
+    # A decaying periodic signal makes the first ACF peak the strongest one.
+    signal = torch.sin(2 * torch.pi * t / 128) * torch.exp(-t / 2000)
+    series = signal.unsqueeze(0).unsqueeze(-1).float()
+    assert model._resolved_length(series) == 128
+    # Series shorter than the original's 401-point ACF window take the
+    # fallback period, clamped to the series length.
+    assert model._resolved_length(torch.randn(1, 300, 1)) == 125
+
+
 def test_left_losses_prototype_update_and_score():
     config = LeftConfig(
         input_features=2,
@@ -310,12 +351,14 @@ def test_left_losses_prototype_update_and_score():
     model = Left(config)
     series = torch.randn(2, 32, 2)
     output = model(series)
-    losses = model.compute_loss_from_output(series, output)
-    assert losses.total.ndim == 0 and torch.isfinite(losses.total)
-    losses.total.backward()
+    # Real training order: update prototypes between forward and backward so
+    # the test locks the autograd-safety of the in-place .data assignment.
     prototypes_before = model.time_prototypes.prototypes.detach().clone()
     model.update_prototypes(series, output)
     assert not torch.equal(prototypes_before, model.time_prototypes.prototypes)
+    losses = model.compute_loss_from_output(series, output)
+    assert losses.total.ndim == 0 and torch.isfinite(losses.total)
+    losses.total.backward()
 
     model.eval()
     assert_finite_shape(model.score(series), (2, 32))

@@ -255,10 +255,28 @@ class AxonAD(nn.Module):
         reconstruction = (output.reconstruction - windows).square().sum(-1).mean(1)
         return reconstruction, self._tail_representation_distance(output)
 
+    @staticmethod
+    def segment_zscore(series: Tensor) -> Tensor:
+        """Z-score each series by its own per-feature statistics.
+
+        The original wraps every segment (train split, validation split,
+        calibration series, and the scored series itself) in
+        ``ReconstructDataset(normalize=True)``, which replaces exactly-zero
+        standard deviations with 1e-8 instead of clamping small scales.
+        """
+        mean = series.mean(dim=1, keepdim=True)
+        std = series.std(dim=1, unbiased=False, keepdim=True)
+        std = torch.where(std == 0, torch.full_like(std, 1e-8), std)
+        return (series - mean) / std
+
     @torch.inference_mode()
     def calibrate(self, normal_series: Tensor, *, batch_size: int = 256) -> None:
-        normal_series = validate_series(
-            normal_series, min_length=self.config.window_length, name="normal_series"
+        normal_series = self.segment_zscore(
+            validate_series(
+                normal_series,
+                min_length=self.config.window_length,
+                name="normal_series",
+            )
         )
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
@@ -271,11 +289,11 @@ class AxonAD(nn.Module):
             ]
             mse = torch.cat([item[0] for item in components])
             representation = torch.cat([item[1] for item in components])
-            self.mse_median.copy_(mse.median())
+            self.mse_median.copy_(mse.quantile(0.5))
             self.mse_iqr.copy_(
                 (mse.quantile(0.75) - mse.quantile(0.25)).clamp_min(self.config.epsilon)
             )
-            self.representation_median.copy_(representation.median())
+            self.representation_median.copy_(representation.quantile(0.5))
             self.representation_iqr.copy_(
                 (
                     representation.quantile(0.75) - representation.quantile(0.25)
@@ -287,7 +305,9 @@ class AxonAD(nn.Module):
     def score(self, series: Tensor, *, batch_size: int = 256) -> Tensor:
         if not self.calibrated:
             raise RuntimeError("call calibrate() before score()")
-        series = validate_series(series, min_length=self.config.window_length)
+        series = self.segment_zscore(
+            validate_series(series, min_length=self.config.window_length)
+        )
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
         with evaluation_mode(self):

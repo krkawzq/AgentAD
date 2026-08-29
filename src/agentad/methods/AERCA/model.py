@@ -92,28 +92,37 @@ class AERCA(nn.Module):
         )
 
     def _kl_standard_normal(self, residuals: Tensor) -> Tensor:
-        samples = residuals.flatten(0, 1)
-        mean = samples.mean(0)
-        centered = samples - mean
-        covariance = centered.T @ centered / max(samples.shape[0] - 1, 1)
+        # The original fits the residual distribution one series at a time,
+        # so every batch member gets its own KL term, averaged over the batch.
+        count, features = residuals.shape[1:]
+        mean = residuals.mean(1)
+        centered = residuals - mean.unsqueeze(1)
+        covariance = (
+            torch.einsum("bti,btj->bij", centered, centered)
+            / max(count - 1, 1)
+        )
         # The original regularizes by the condition number so that stiff
         # covariance matrices receive proportionally stronger shrinkage.
         eigenvalues = torch.linalg.eigvalsh(covariance)
-        condition = eigenvalues.max() / eigenvalues.clamp_min(1e-9).min()
+        condition = (
+            eigenvalues.max(-1).values
+            / eigenvalues.clamp_min(1e-9).min(-1).values
+        )
         covariance = covariance + torch.eye(
-            self.config.input_features,
-            device=samples.device,
-            dtype=samples.dtype,
-        ) * (self.config.covariance_epsilon * condition)
+            features,
+            device=residuals.device,
+            dtype=residuals.dtype,
+        ) * (self.config.covariance_epsilon * condition).unsqueeze(-1).unsqueeze(-1)
         sign, logdet = torch.linalg.slogdet(covariance)
         if torch.any(sign <= 0):
             raise RuntimeError("residual covariance is not positive definite")
-        return (
-            covariance.trace()
-            + mean.square().sum()
-            - self.config.input_features
+        kl = (
+            covariance.diagonal(dim1=-2, dim2=-1).sum(-1)
+            + mean.square().sum(-1)
+            - features
             + logdet
         )
+        return kl.mean()
 
     def _validate_input(self, x: Tensor) -> Tensor:
         minimum = 2 * self.config.window + 2

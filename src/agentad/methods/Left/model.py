@@ -43,16 +43,18 @@ class _SpectralBands(nn.Module):
     def _masks(self, frequencies: Tensor) -> tuple[Tensor, Tensor]:
         edges = self._edges()
         lower = torch.cat((edges.new_zeros(1), edges[:-1]))
+        # The original soft step divides by tau + eps.
+        width = self.temperature + self.epsilon
         masks = torch.stack(
             [
                 (
-                    torch.sigmoid((frequencies - low) / self.temperature)
-                    - torch.sigmoid((frequencies - high) / self.temperature)
+                    torch.sigmoid((frequencies - low) / width)
+                    - torch.sigmoid((frequencies - high) / width)
                 ).clamp_min(0)
                 for low, high in zip(lower, edges)
             ]
         )
-        residual = torch.sigmoid((frequencies - edges[-1]) / self.temperature)
+        residual = torch.sigmoid((frequencies - edges[-1]) / width)
         denominator = masks.sum(0) + residual + self.epsilon
         return masks[self.inverse_order] / denominator, residual / denominator
 
@@ -190,7 +192,6 @@ class _ScaleEncoderLayer(nn.Module):
     def forward(self, x: Tensor, mask: Tensor) -> Tensor:
         attended, _ = self.attention(x, x, x, attn_mask=mask, need_weights=False)
         x = self.norm1(x + self.projection_dropout(attended))
-        x = self.norm1(x)
         return self.norm2(x + self.feedforward(x))
 
 
@@ -266,7 +267,8 @@ class _PrototypeBank(nn.Module):
         )
 
     def normalize(self, x: Tensor) -> Tensor:
-        return F.normalize(x, dim=-1, eps=self.epsilon)
+        # The original divides by norm + eps rather than clamping the norm.
+        return x / (x.norm(p=2, dim=-1, keepdim=True) + self.epsilon)
 
     def forward(self, tokens: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         similarity = torch.einsum(
@@ -275,7 +277,8 @@ class _PrototypeBank(nn.Module):
         membership = (self.temperature * similarity).softmax(-1)
         confidence = membership.max(-1).values
         entropy = -(membership * membership.clamp_min(self.epsilon).log()).sum(-1)
-        entropy = entropy / math.log(max(membership.shape[-1], 2))
+        count = membership.shape[-1]
+        entropy = entropy / (math.log(count + 1e-6) if count > 1 else 1.0)
         return membership, confidence, entropy
 
     @torch.no_grad()
@@ -287,8 +290,11 @@ class _PrototypeBank(nn.Module):
         sums = torch.zeros_like(self.prototypes).index_add(0, assignments, latents)
         active = counts > 0
         means = sums[active] / counts[active, None]
-        self.prototypes[active] = (
-            momentum * self.prototypes[active] + (1 - momentum) * means
+        # Assign through .data: the update runs between the forward pass and
+        # the backward pass of the same training step, and a tracked in-place
+        # write would invalidate the saved autograd graph.
+        self.prototypes.data[active] = (
+            momentum * self.prototypes.data[active] + (1 - momentum) * means
         )
 
 
@@ -621,7 +627,11 @@ class Left(nn.Module):
 
     @torch.no_grad()
     def update_prototypes(self, x: Tensor, output: LeftOutput) -> None:
-        """Apply the confidence-filtered EMA update after an optimizer step."""
+        """Apply the confidence-filtered EMA update inside the training iteration.
+
+        The original runs this update inside its training forward pass, before
+        the backward pass and optimizer step of the same iteration.
+        """
         error = (output.spectral_reconstruction - x).abs().mean((1, 2))
         disagreement = output.disagreement.mean(1)
         good = (
@@ -665,13 +675,22 @@ class Left(nn.Module):
             ).transpose(1, 2)
         time_probability = output.time_membership
         frequency_probability = output.frequency_membership
+        # The original normalizes entropy by log(M + 1e-6), or 1.0 when M == 1.
         time_entropy = -(
             time_probability * time_probability.clamp_min(self.config.epsilon).log()
-        ).sum(-1) / math.log(max(time_probability.shape[-1], 2))
+        ).sum(-1) / (
+            math.log(time_probability.shape[-1] + 1e-6)
+            if time_probability.shape[-1] > 1
+            else 1.0
+        )
         frequency_entropy = -(
             frequency_probability
             * frequency_probability.clamp_min(self.config.epsilon).log()
-        ).sum(-1) / math.log(max(frequency_probability.shape[-1], 2))
+        ).sum(-1) / (
+            math.log(frequency_probability.shape[-1] + 1e-6)
+            if frequency_probability.shape[-1] > 1
+            else 1.0
+        )
         gate = 0.25 * (
             2
             - time_probability.max(-1).values

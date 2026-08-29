@@ -19,6 +19,7 @@ class PaAnoLightningModule(L.LightningModule):
         super().__init__()
         self.config = config or PaAnoConfig.original_default()
         self.model = PaAno(self.config)
+        self._last_iteration_loss: float | None = None
         self._best_iteration_loss: float | None = None
         self._best_iteration_state: dict[str, Tensor] | None = None
 
@@ -73,14 +74,7 @@ class PaAnoLightningModule(L.LightningModule):
             batch_size=indices.numel(),
         )
         if stage == "train":
-            # The original keeps the weights of the best training iteration.
-            value = float(losses.total)
-            if self._best_iteration_loss is None or value < self._best_iteration_loss:
-                self._best_iteration_loss = value
-                self._best_iteration_state = {
-                    key: tensor.detach().cpu().clone()
-                    for key, tensor in self.state_dict().items()
-                }
+            self._last_iteration_loss = float(losses.total)
         return losses.total
 
     def training_step(self, batch: object, batch_idx: int) -> Tensor:
@@ -88,6 +82,21 @@ class PaAnoLightningModule(L.LightningModule):
 
     def validation_step(self, batch: object, batch_idx: int) -> Tensor:
         return self._step(batch, "val")
+
+    def on_train_batch_end(self, outputs: object, batch: object, batch_idx: int) -> None:
+        # The original compares the iteration loss after optimizer.step() and
+        # deep-copies the post-update weights, so the snapshot lags the loss
+        # by one update.
+        value = self._last_iteration_loss
+        if value is not None and (
+            self._best_iteration_loss is None or value < self._best_iteration_loss
+        ):
+            self._best_iteration_loss = value
+            self._best_iteration_state = {
+                key: tensor.detach().cpu().clone()
+                for key, tensor in self.state_dict().items()
+            }
+        self._last_iteration_loss = None
 
     def on_train_end(self) -> None:
         if self._best_iteration_state is not None:

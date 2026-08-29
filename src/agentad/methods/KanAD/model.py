@@ -95,7 +95,11 @@ class KANAD(nn.Module):
         with evaluation_mode(self):
             prediction = self(windows).prediction
             targets = self._targets(targets, prediction.shape[0], prediction.shape[1])
-            return (prediction - targets).abs().mean(dim=1)
+            error = (prediction - targets).abs().mean(dim=1)
+            # NaN forecasts are pinned to the original sentinel score.
+            return torch.where(
+                torch.isnan(error), torch.full_like(error, 1000.0), error
+            )
 
     @torch.inference_mode()
     def score(self, series: Tensor) -> Tensor:

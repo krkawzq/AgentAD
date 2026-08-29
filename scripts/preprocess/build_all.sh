@@ -37,7 +37,6 @@ case "$output" in
 esac
 
 processors=(
-    process_anomllm.py
     process_crossad.py
     process_dada.py
     process_dcdetector.py
@@ -54,7 +53,6 @@ optional_processors=(
     "process_wadi.py:data/raw/WADI"
     "process_granite_tsfm.py:data/raw/GraniteTSFM/ZafNoo.csv"
     "process_gift_eval.py:data/raw/GiftEval"
-    "process_time_rcd.py:data/raw/TimeRCD/datasets"
 )
 for spec in "${optional_processors[@]}"; do
     script="${spec%%:*}"

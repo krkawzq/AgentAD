@@ -19,14 +19,26 @@ class ValidationEarlyStopping:
     stop after ``patience`` epochs without an improvement of at least
     ``min_delta``, and reloads the best weights when training ends. Host
     modules must not define the same hooks without calling ``super()``.
+    ``restore_best=False`` keeps the final weights for originals that construct
+    their early stopper without a save path and score with the last state.
+    ``ties_improve=True`` counts ``value == best - min_delta`` as an
+    improvement, matching originals whose stopper tests ``val_loss <= best``.
     """
 
     def _init_validation_early_stopping(
-        self, *, monitor: str, patience: int, min_delta: float = 0.0
+        self,
+        *,
+        monitor: str,
+        patience: int,
+        min_delta: float = 0.0,
+        restore_best: bool = True,
+        ties_improve: bool = False,
     ) -> None:
         self._monitor = monitor
         self._early_stopping_patience = patience
         self._early_stopping_min_delta = min_delta
+        self._restore_best_weights = restore_best
+        self._ties_improve = ties_improve
         self._best_metric: float | None = None
         self._stale_epochs = 0
         self._best_state: dict[str, Tensor] | None = None
@@ -41,23 +53,27 @@ class ValidationEarlyStopping:
                 f"validation early stopping requires the {self._monitor!r} metric"
             )
         value = float(metric)
-        if (
-            self._best_metric is None
-            or value < self._best_metric - self._early_stopping_min_delta
-        ):
+        if self._best_metric is None:
+            improves = True
+        elif self._ties_improve:
+            improves = value <= self._best_metric - self._early_stopping_min_delta
+        else:
+            improves = value < self._best_metric - self._early_stopping_min_delta
+        if improves:
             self._best_metric = value
             self._stale_epochs = 0
-            self._best_state = {
-                key: tensor.detach().cpu().clone()
-                for key, tensor in self.state_dict().items()
-            }
+            if self._restore_best_weights:
+                self._best_state = {
+                    key: tensor.detach().cpu().clone()
+                    for key, tensor in self.state_dict().items()
+                }
         else:
             self._stale_epochs += 1
             if self._stale_epochs >= self._early_stopping_patience:
                 trainer.should_stop = True
 
     def on_train_end(self) -> None:
-        if self._best_state is not None:
+        if self._restore_best_weights and self._best_state is not None:
             self.load_state_dict(self._best_state)
 
 

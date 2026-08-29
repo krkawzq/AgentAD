@@ -18,10 +18,15 @@ class KANADLightningModule(ValidationEarlyStopping, L.LightningModule):
         super().__init__()
         self.config = config or KANADConfig.original_default()
         self.model = KANAD(self.config)
+        # The original constructs EarlyStoppingTorch without a save path,
+        # treats val_loss == best - delta as an improvement, and scores with
+        # the final weights.
         self._init_validation_early_stopping(
             monitor="val/loss",
             patience=self.config.early_stopping_patience,
             min_delta=self.config.early_stopping_min_delta,
+            ties_improve=True,
+            restore_best=False,
         )
 
     def forward(self, windows: Tensor):
@@ -49,7 +54,10 @@ class KANADLightningModule(ValidationEarlyStopping, L.LightningModule):
             on_epoch=True,
             prog_bar=True,
             sync_dist=True,
-            batch_size=windows.shape[0],
+            # batch_size=1 makes Lightning's epoch reduction an unweighted
+            # mean over batches, matching the original's
+            # valid_loss / len(valid_loader) validation average.
+            batch_size=windows.shape[0] if stage == "train" else 1,
         )
         return loss.total
 

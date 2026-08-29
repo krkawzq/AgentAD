@@ -18,6 +18,8 @@ class DADALightningModule(L.LightningModule):
         super().__init__()
         self.config = config or DADAConfig.original_pretrained()
         self.model = DADA(self.config)
+        if self.config.reference_checkpoint is not None:
+            self.model.load_reference_checkpoint(self.config.reference_checkpoint)
         self.automatic_optimization = False
 
     def forward(self, series: Tensor, **kwargs: object):

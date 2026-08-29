@@ -1,4 +1,11 @@
-"""Lightning training module for AxonAD."""
+"""Lightning training module for AxonAD.
+
+The original z-scores the train and validation segments independently before
+windowing (``ReconstructDataset(normalize=True)``); training batches must
+contain windows from per-segment z-scored series built with
+``AxonAD.segment_zscore``. ``calibrate`` and ``score`` apply the same
+normalization internally.
+"""
 
 from __future__ import annotations
 
@@ -20,11 +27,15 @@ class AxonADLightningModule(ValidationEarlyStopping, L.LightningModule):
         super().__init__()
         self.config = config
         self.model = AxonAD(config)
-        # The original early-stops on the validation reconstruction MSE.
+        # The original early-stops on the validation reconstruction MSE. Its
+        # EarlyStoppingTorch treats val_loss == best - delta as an improvement
+        # and, constructed without a save path, keeps the final weights.
         self._init_validation_early_stopping(
             monitor="val/reconstruction",
             patience=config.patience,
             min_delta=config.early_stopping_min_delta,
+            ties_improve=True,
+            restore_best=False,
         )
 
     def forward(self, windows: Tensor):
@@ -69,7 +80,10 @@ class AxonADLightningModule(ValidationEarlyStopping, L.LightningModule):
                 on_epoch=True,
                 prog_bar=name == "total",
                 sync_dist=True,
-                batch_size=windows.shape[0],
+                # batch_size=1 makes Lightning's epoch reduction an unweighted
+                # mean over batches, matching the original's
+                # val_*_sum / n_batches validation averages.
+                batch_size=windows.shape[0] if stage == "train" else 1,
             )
         return losses.total
 

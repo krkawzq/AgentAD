@@ -74,7 +74,7 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.18.1,<2" },
     { name = "statsmodels", specifier = ">=0.15.0,<1" },
     { name = "torch", specifier = ">=2.11,<3" },
-    { name = "xlstm", specifier = ">=2.0.5,<3" },
+    { name = "xlstm", specifier = "==2.0.5" },
     { name = "zarr", specifier = ">=3.3.0" },
 ]
 provides-extras = ["download"]

@@ -188,6 +188,7 @@ class LeftConfig:
             scale_factors=(4,), prototypes=128,
             memory_warmup_steps=1_000, memory_ramp_steps=2_000,
             latent_fusion_hidden=512, residual_weight=0.1, fusion_weight=0.9,
+            cycle_score_weight=0.5, multiscale_score_weight=0.5,
             frequency_score_weight=0.2, time_score_weight=0.8,
             gate_score_weight=0.2, score_smoothing=3,
             learning_rate_schedule="type2",
@@ -201,6 +202,7 @@ class LeftConfig:
             prototype_temperature=9.0, memory_warmup_steps=1_000,
             memory_ramp_steps=2_000, latent_fusion_hidden=512,
             residual_weight=0.5, fusion_weight=0.5,
+            cycle_score_weight=0.5, multiscale_score_weight=0.5,
             frequency_score_weight=0.5, time_score_weight=0.5,
             gate_score_weight=5.0, score_smoothing=3,
         )

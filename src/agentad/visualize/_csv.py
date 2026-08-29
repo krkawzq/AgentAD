@@ -123,11 +123,17 @@ def _timestamps(values: pd.Series) -> tuple[np.ndarray, dict[str, str] | None]:
 
     try:
         parsed = pd.to_datetime(values, errors="raise", format="mixed", utc=True)
+        # pandas >= 3 parses to microsecond resolution; the packed timestamp
+        # contract stores epoch nanoseconds.
+        timestamps = (
+            parsed.dt.as_unit("ns")
+            .astype("int64", copy=False)
+            .to_numpy(dtype=np.int64, copy=False)
+        )
     except (TypeError, ValueError, OverflowError) as error:
         raise ValueError(
             "CSV timestamp values must be signed int64 or ISO-8601 datetimes"
         ) from error
-    timestamps = parsed.astype("int64", copy=False).to_numpy(dtype=np.int64, copy=False)
     return np.ascontiguousarray(timestamps), {
         "original_values": "datetime",
         "source_timezone": "UTC",

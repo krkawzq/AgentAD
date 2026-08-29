@@ -19,9 +19,11 @@ class CrossADLightningModule(ValidationEarlyStopping, L.LightningModule):
         super().__init__()
         self.config = config or CrossADConfig.original_msl()
         self.model = CrossAD(self.config)
+        # The original stopper treats val_loss <= best as an improvement.
         self._init_validation_early_stopping(
             monitor="val/loss",
             patience=self.config.patience,
+            ties_improve=True,
         )
 
     def forward(self, series: Tensor):
@@ -53,7 +55,9 @@ class CrossADLightningModule(ValidationEarlyStopping, L.LightningModule):
                 on_epoch=True,
                 prog_bar=name == "total",
                 sync_dist=True,
-                batch_size=series.shape[0],
+                # batch_size=1 makes Lightning's epoch reduction an unweighted
+                # mean over batches, matching the original np.average(val_loss).
+                batch_size=series.shape[0] if stage == "train" else 1,
             )
         return losses.total
 
@@ -80,12 +84,24 @@ class CrossADLightningModule(ValidationEarlyStopping, L.LightningModule):
         )
 
         def scale(epoch: int) -> float:
+            # The original applies milestone m at the end of epoch m-1, so
+            # epoch m is the first one running with the milestone value.
             current = self.config.learning_rate
             for milestone, value in milestones:
-                if epoch + 1 < milestone:
+                if epoch < milestone:
                     break
                 current = value
             return current / self.config.learning_rate
+
+        return scale
+
+    @staticmethod
+    def _type1_schedule() -> Callable[[int], float]:
+        # The original halves the learning rate only from the third epoch on:
+        # it calls _adjust_learning_rate(epoch + 1) after each epoch, and the
+        # first call keeps the base rate for the second epoch.
+        def scale(epoch: int) -> float:
+            return 0.5 ** max(0, epoch - 1)
 
         return scale
 
@@ -97,12 +113,12 @@ class CrossADLightningModule(ValidationEarlyStopping, L.LightningModule):
             self.parameters(), lr=self.config.learning_rate
         )
         if self.config.learning_rate_schedule == "type1":
-            scheduler: object = torch.optim.lr_scheduler.StepLR(
-                optimizer, step_size=1, gamma=0.5
+            scheduler: object = torch.optim.lr_scheduler.LambdaLR(
+                optimizer, self._type1_schedule()
             )
         else:
             scheduler = torch.optim.lr_scheduler.LambdaLR(
-                optimizer, lr_lambda=self._type2_schedule()
+                optimizer, self._type2_schedule()
             )
         return {
             "optimizer": optimizer,
