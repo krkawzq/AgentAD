@@ -23,9 +23,9 @@ test("panel widths stay within accessible resize bounds", () => {
 });
 
 test("track canvases keep a fixed lane height and stack only when needed", () => {
-  assert.equal(core.chartCanvasHeight(1, "stacked"), 148);
-  assert.equal(core.chartCanvasHeight(3, "stacked"), 340);
-  assert.equal(core.chartCanvasHeight(20, "overlay"), 148);
+  assert.equal(core.chartCanvasHeight(1, "stacked"), 132);
+  assert.equal(core.chartCanvasHeight(3, "stacked"), 324);
+  assert.equal(core.chartCanvasHeight(20, "overlay"), 132);
 });
 
 test("tree updates preserve untouched branches", () => {
@@ -41,6 +41,73 @@ test("tree updates preserve untouched branches", () => {
   assert.equal(next[1], right);
   assert.deepEqual(next[0].children[0], { key: "target", children, isLeaf: false });
   assert.equal(core.replaceTreeChildren(next, "missing", []), next);
+});
+
+test("last-tab preferences are validated for new independent tabs", () => {
+  const preferences = core.parseTabPreferences(JSON.stringify({
+    normalization: "robust",
+    scope: "global",
+    labelName: "is_anomaly",
+    mode: "select",
+    layout: "overlay",
+    transform: { rotation: 500, scaleX: 0, scaleY: 8, flipX: true },
+    inspectorOpen: true,
+    inspectorWidth: 900,
+  }));
+  assert.deepEqual(preferences, {
+    normalization: "robust",
+    scope: "global",
+    labelIndex: null,
+    labelName: "is_anomaly",
+    mode: "select",
+    layout: "overlay",
+    transform: {
+      rotation: 180,
+      scaleX: 0.25,
+      scaleY: 4,
+      flipX: true,
+      flipY: false,
+    },
+    inspectorOpen: true,
+    inspectorWidth: 560,
+  });
+  assert.deepEqual(
+    core.parseTabPreferences(core.serializeTabPreferences(preferences)),
+    preferences,
+  );
+});
+
+test("wheel deltas work for mice and macOS trackpads", () => {
+  assert.equal(core.normalizeWheelDelta(3, 0, 1), 48);
+  assert.equal(core.normalizeWheelDelta(0, -4, 1), -64);
+  assert.equal(core.normalizeWheelDelta(1000, 0, 0), 240);
+  assert.ok(core.zoomScale(1, -100) > 1);
+  assert.ok(core.zoomScale(1, 100) < 1);
+  assert.equal(core.zoomScale(4, -1000), 4);
+  assert.equal(core.zoomScale(0.25, 1000), 0.25);
+});
+
+test("tooltips choose below, centered, and above placements", () => {
+  const viewport = { width: 800, height: 600 };
+  const tooltip = { width: 200, height: 120 };
+  assert.deepEqual(core.positionTooltip({ x: 400, y: 20 }, viewport, tooltip), {
+    x: 414,
+    y: 34,
+    horizontal: "right",
+    vertical: "below",
+  });
+  assert.deepEqual(core.positionTooltip({ x: 400, y: 300 }, viewport, tooltip), {
+    x: 414,
+    y: 240,
+    horizontal: "right",
+    vertical: "center",
+  });
+  assert.deepEqual(core.positionTooltip({ x: 790, y: 580 }, viewport, tooltip), {
+    x: 576,
+    y: 446,
+    horizontal: "left",
+    vertical: "above",
+  });
 });
 
 test("nearestSampleIndex uses ordered nearest-neighbor lookup", () => {

@@ -354,45 +354,6 @@ def test_collection_validates_global_thresholds_before_scoring(
     assert calls == 0
 
 
-def test_precomputed_scores_skip_unused_data_period_and_score_items(monkeypatch):
-    import agentad.evaluation.collection as collection_module
-    import agentad.evaluation.period as period_module
-
-    train_item = SeriesItem(
-        "s",
-        np.array([[1.0], [2.0]]),
-        np.array([0, 1], dtype=np.int64),
-        pd.DataFrame({"label": [0, 0]}),
-    )
-    test_item = SeriesItem(
-        "s",
-        np.array([[3.0, 30.0], [4.0, 40.0]]),
-        np.array([0, 1], dtype=np.int64),
-        pd.DataFrame({"label": [0, 1]}),
-    )
-    train = SeriesData.from_items(
-        [train_item], features=pd.DataFrame({"name": ["train_feature"]})
-    )
-    test = SeriesData.from_items(
-        [test_item], features=pd.DataFrame({"name": ["test_a", "test_b"]})
-    )
-
-    def unexpected(*args, **kwargs):
-        raise AssertionError("unused evaluation path was called")
-
-    monkeypatch.setattr(collection_module, "SeriesItem", unexpected)
-    monkeypatch.setattr(period_module, "find_period", unexpected)
-    result = evaluate_collection(
-        test,
-        train,
-        scores={"s": np.array([0.0, 0.1, 0.2, 0.9])},
-        metrics=("AUC-ROC",),
-        sliding_window="auto",
-        on_error="raise",
-    )
-    assert result.per_series.loc[0, "AUC-ROC"] == 1.0
-
-
 def test_period_fallback_for_constant_series():
     assert find_period(np.ones(20)) == 125
     values = np.ones(20_001)

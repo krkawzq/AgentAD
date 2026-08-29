@@ -289,7 +289,7 @@ function SeriesBrowser({
   );
 }
 
-function FeatureBrowser({ overview, selected, onToggle, onSelectDefaults }) {
+function FeatureBrowser({ overview, selected, onToggle }) {
   const [query, setQuery] = useState("");
   const matches = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
@@ -304,7 +304,7 @@ function FeatureBrowser({ overview, selected, onToggle, onSelectDefaults }) {
   const visible = matches.slice(0, 300);
 
   return (
-    <div className="sidebar-panel" role="tabpanel">
+    <div className="sidebar-panel feature-panel" role="tabpanel">
       <div className="panel-heading">
         <div>
           <span className="eyebrow">TRACK LIBRARY</span>
@@ -325,7 +325,6 @@ function FeatureBrowser({ overview, selected, onToggle, onSelectDefaults }) {
         />
       </label>
       <div className="feature-actions">
-        <button type="button" onClick={onSelectDefaults}>Select first tracks</button>
         <span>{matches.length.toLocaleString()} matches</span>
       </div>
       <div className="feature-list">
@@ -382,7 +381,6 @@ export function Sidebar({
   onLoadMore,
   selectedFeatures,
   onToggleFeature,
-  onSelectDefaultFeatures,
 }) {
   return (
     <>
@@ -416,7 +414,6 @@ export function Sidebar({
             overview={overview}
             selected={selectedFeatures}
             onToggle={onToggleFeature}
-            onSelectDefaults={onSelectDefaultFeatures}
           />
         )}
       </aside>

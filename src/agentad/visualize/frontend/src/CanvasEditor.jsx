@@ -6,7 +6,10 @@ import {
   clampWindow,
   formatNumber,
   nearestSampleIndex,
+  normalizeWheelDelta,
   panWindow,
+  positionTooltip,
+  zoomScale,
   zoomWindow,
 } from "../../static/core.js";
 import { chartGeometry, renderChart, renderInteractionOverlay } from "./renderer.js";
@@ -22,16 +25,37 @@ function pointerPosition(event, canvas) {
   };
 }
 
-function Tooltip({ data, index, position }) {
-  if (index == null || data?.indices[index] === undefined) return null;
+function Tooltip({ data, index, pointer, viewport }) {
+  const tooltipRef = useRef(null);
+  const [tooltipSize, setTooltipSize] = useState({ width: 270, height: 220 });
+  const visible = index != null && data?.indices[index] !== undefined;
+
+  useLayoutEffect(() => {
+    if (!visible || !tooltipRef.current) return;
+    const bounds = tooltipRef.current.getBoundingClientRect();
+    const next = { width: bounds.width, height: bounds.height };
+    setTooltipSize((current) =>
+      Math.abs(current.width - next.width) < 0.5 && Math.abs(current.height - next.height) < 0.5
+        ? current
+        : next,
+    );
+  }, [data, index, visible]);
+
+  const position = useMemo(
+    () => positionTooltip(pointer, viewport, tooltipSize),
+    [pointer, tooltipSize, viewport],
+  );
+  if (!visible) return null;
   const absoluteIndex = data.indices[index];
   const inLabel = data.label_runs.some(
     (run) => absoluteIndex >= run.start_index && absoluteIndex <= run.stop_index,
   );
   return (
     <div
+      ref={tooltipRef}
       className="chart-tooltip"
-      style={{ left: position.x + 14, top: position.y + 14 }}
+      data-placement={`${position.vertical}-${position.horizontal}`}
+      style={{ left: position.x, top: position.y }}
       role="status"
     >
       <div className="tooltip-time">
@@ -83,6 +107,7 @@ export function CanvasEditor({
     () => chartCanvasHeight(data?.features.length ?? 0, layout),
     [data?.features.length, layout],
   );
+  const tracksScrollable = canvasHeight > size.viewportHeight + 1;
 
   const dpr = useMemo(() => {
     const ideal = Math.min(window.devicePixelRatio || 1, 2);
@@ -98,7 +123,7 @@ export function CanvasEditor({
     const update = () => {
       setSize({
         width: Math.max(320, element.clientWidth),
-        viewportHeight: Math.max(280, element.clientHeight),
+        viewportHeight: Math.max(1, element.clientHeight),
       });
     };
     update();
@@ -110,6 +135,12 @@ export function CanvasEditor({
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    if (!tracksScrollable && scrollRef.current?.scrollTop) {
+      scrollRef.current.scrollTop = 0;
+    }
+  }, [tracksScrollable]);
 
   useEffect(() => {
     const canvas = baseCanvasRef.current;
@@ -261,19 +292,18 @@ export function CanvasEditor({
 
   const handleWheel = (event) => {
     if (!data || totalPoints <= 0) return;
-    const scroll = scrollRef.current;
-    const tracksOverflow =
-      layout === "stacked" && scroll && scroll.scrollHeight > scroll.clientHeight + 1;
-    if (tracksOverflow && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
-      return;
-    }
+    if (!event.shiftKey && !event.altKey) return;
     event.preventDefault();
-    const span = viewport[1] - viewport[0];
-    if (event.shiftKey || event.altKey) {
-      const direction = event.deltaY || event.deltaX;
-      commitViewport(panWindow(viewport, (direction / 500) * span, totalPoints));
+    const delta = normalizeWheelDelta(event.deltaY, event.deltaX, event.deltaMode);
+    if (!delta) return;
+    if (event.altKey) {
+      onTransformChange((current) => ({
+        ...current,
+        scaleY: zoomScale(current.scaleY, delta),
+      }));
       return;
     }
+    const span = viewport[1] - viewport[0];
     const canvas = canvasRef.current;
     const point = pointerPosition(event, canvas);
     const geometry = chartGeometry(size.width, canvasHeight, data.features.length, layout);
@@ -282,7 +312,7 @@ export function CanvasEditor({
       Math.min(1, (point.x - geometry.left) / (geometry.right - geometry.left)),
     );
     const anchor = viewport[0] + fraction * span;
-    commitViewport(zoomWindow(viewport, Math.exp(event.deltaY * 0.0015), anchor, totalPoints));
+    commitViewport(zoomWindow(viewport, Math.exp(delta * 0.0015), anchor, totalPoints));
   };
 
   const handleKeyDown = (event) => {
@@ -320,17 +350,19 @@ export function CanvasEditor({
     if (next) commitViewport(next);
   };
 
-  const tooltipPosition = {
-    x: Math.min(hover.position.x, size.width - 290),
-    y: Math.min(hover.position.y, size.viewportHeight - 220) + (scrollRef.current?.scrollTop ?? 0),
+  const tooltipPointer = {
+    x: hover.position.x,
+    y: hover.position.y - (scrollRef.current?.scrollTop ?? 0),
   };
+  const tooltipViewport = { width: size.width, height: size.viewportHeight };
 
   return (
-    <div
-      className="canvas-shell"
-      style={{ "--canvas-content-height": `${canvasHeight}px` }}
-    >
-      <div className="canvas-scroll" ref={scrollRef}>
+    <div className="canvas-shell">
+      <div
+        className={`canvas-scroll ${tracksScrollable ? "is-scrollable" : ""}`}
+        ref={scrollRef}
+        onScroll={() => setHover({ index: null, position: { x: 0, y: 0 } })}
+      >
         <canvas
           ref={baseCanvasRef}
           className="series-canvas series-canvas-base"
@@ -340,7 +372,7 @@ export function CanvasEditor({
           ref={canvasRef}
           className={`series-canvas series-canvas-overlay mode-${mode}`}
           tabIndex="0"
-          aria-label="Time-series editor. Press Z for box zoom, V for pan, plus or minus to zoom, arrow keys to pan, and zero to fit."
+          aria-label="Time-series editor. Scroll to move between tracks, Shift-scroll to zoom the timeline at the pointer, Alt or Option-scroll to scale values, Z for box zoom, and V for pan."
           aria-describedby="chart-summary"
           onDoubleClick={() => commitViewport([0, totalPoints])}
           onKeyDown={handleKeyDown}
@@ -353,8 +385,13 @@ export function CanvasEditor({
         >
           This visualization requires a browser with Canvas support.
         </canvas>
-        <Tooltip data={data} index={hover.index} position={tooltipPosition} />
       </div>
+      <Tooltip
+        data={data}
+        index={hover.index}
+        pointer={tooltipPointer}
+        viewport={tooltipViewport}
+      />
       <p id="chart-summary" className="sr-only" aria-live="polite">
         {data
           ? `Series ${data.series.id}, showing ${data.features.length} tracks from point ${viewport[0]} to ${viewport[1]}.`

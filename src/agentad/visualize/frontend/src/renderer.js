@@ -1,7 +1,6 @@
 import {
   buildPolyline2D,
   formatNumber,
-  nearestSampleIndex,
   valueDomain,
   valueToY,
 } from "../../static/core.js";
@@ -28,25 +27,10 @@ export function chartGeometry(width, height, featureCount, layout) {
   const left = 148;
   const right = Math.max(left + 40, width - 20);
   const top = 18;
-  const bottom = Math.max(top + 30, height - 34);
+  const bottom = Math.max(top + 30, height - 18);
   const lanes = layout === "overlay" ? 1 : Math.max(1, featureCount);
   const laneHeight = (bottom - top) / lanes;
   return { left, right, top, bottom, lanes, laneHeight };
-}
-
-function textEllipsis(context, text, width) {
-  if (context.measureText(text).width <= width) return text;
-  let lower = 0;
-  let upper = text.length;
-  while (lower < upper) {
-    const middle = Math.ceil((lower + upper) / 2);
-    if (context.measureText(`${text.slice(0, middle)}…`).width <= width) {
-      lower = middle;
-    } else {
-      upper = middle - 1;
-    }
-  }
-  return `${text.slice(0, lower)}…`;
 }
 
 function combinedDomain(features) {
@@ -97,32 +81,6 @@ function drawPolyline(context, points, color) {
     drawing = true;
   }
   context.stroke();
-}
-
-function drawTimeAxis(context, data, viewport, geometry) {
-  if (!data.indices.length) return;
-  const span = Math.max(1, viewport[1] - viewport[0]);
-  const plotWidth = geometry.right - geometry.left;
-  context.fillStyle = MUTED;
-  context.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
-  context.textAlign = "center";
-  context.textBaseline = "top";
-  const tickCount = plotWidth < 500 ? 4 : 6;
-  for (let tick = 0; tick < tickCount; tick += 1) {
-    const fraction = tick / (tickCount - 1);
-    const target = viewport[0] + span * fraction;
-    const sample = nearestSampleIndex(data.indices, target);
-    if (sample < 0) continue;
-    const x = geometry.left + ((data.indices[sample] - viewport[0]) / span) * plotWidth;
-    if (x < geometry.left - 1 || x > geometry.right + 1) continue;
-    const label = data.timestamp_labels[sample] ?? String(data.indices[sample]);
-    const maxWidth = Math.max(42, plotWidth / tickCount - 10);
-    context.fillText(
-      textEllipsis(context, String(label), maxWidth),
-      x,
-      geometry.bottom + 10,
-    );
-  }
 }
 
 export function renderChart(canvas, options) {
@@ -265,8 +223,6 @@ export function renderChart(canvas, options) {
     context.strokeRect(left + 0.5, top + 0.5, selectionWidth, selectionHeight);
     context.setLineDash([]);
   }
-
-  drawTimeAxis(context, data, viewport, geometry);
 }
 
 export function renderInteractionOverlay(canvas, options) {

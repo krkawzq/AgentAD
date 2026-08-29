@@ -475,13 +475,44 @@ def test_browser_mode_lists_and_opens_a_package_over_http(tmp_path: Path) -> Non
         overview = json.loads(response.read())
         assert response.status == 200
         assert overview["path"] == package.name
+        assert overview["source"].startswith("source-")
         assert overview["series_count"] == 2
 
-        connection.request("GET", "/api/items?limit=1")
+        connection.request(
+            "GET", f"/api/items?source={quote(overview['source'])}&limit=1"
+        )
         response = connection.getresponse()
         assert response.status == 200
         assert json.loads(response.read())["items"][0]["id"] == "s-0"
         connection.close()
+
+
+def test_webui_keeps_tab_sources_isolated_and_releases_closed_views(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first.zarr.zip"
+    second = tmp_path / "second.zarr.zip"
+    write(build_collection(series_lengths=(3,)), first)
+    write(build_collection(series_lengths=(2, 2, 2)), second)
+    app = WebUI(root=tmp_path)
+
+    first_overview = app.api("/api/open", {"path": [first.name]})
+    second_overview = app.api("/api/open", {"path": [second.name]})
+    assert first_overview["source"] != second_overview["source"]
+    assert app.api(
+        "/api/items", {"source": [first_overview["source"]]}
+    )["total"] == 1
+    assert app.api(
+        "/api/items", {"source": [second_overview["source"]]}
+    )["total"] == 3
+    assert app.api(
+        "/api/overview", {"source": [first_overview["source"]]}
+    )["path"] == first.name
+
+    closed = app.api("/api/close", {"source": [first_overview["source"]]})
+    assert closed["closed"] == first_overview["source"]
+    with pytest.raises(LookupError):
+        app.api("/api/items", {"source": [first_overview["source"]]})
 
 
 def test_csv_contract_loads_series_features_labels_metadata_and_datetimes(

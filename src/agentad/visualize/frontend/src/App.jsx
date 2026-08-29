@@ -13,23 +13,23 @@ import {
   ZoomOut,
 } from "lucide-react";
 
-import { clampPanelWidth, zoomWindow } from "../../static/core.js";
+import {
+  DEFAULT_VIEW_OPTIONS,
+  clampPanelWidth,
+  zoomWindow,
+} from "../../static/core.js";
 import { api, ApiError } from "./api.js";
 import { CanvasEditor, TimelineNavigator } from "./CanvasEditor.jsx";
 import { Inspector } from "./Inspector.jsx";
 import { Sidebar } from "./Sidebar.jsx";
 
-const DEFAULT_TRANSFORM = Object.freeze({
-  rotation: 0,
-  scaleX: 1,
-  scaleY: 1,
-  flipX: false,
-  flipY: false,
-});
 const SIDEBAR_DEFAULT_WIDTH = 300;
 const SIDEBAR_MIN_WIDTH = 240;
 const SIDEBAR_MAX_WIDTH = 520;
 const SIDEBAR_WIDTH_KEY = "agentad-visualizer:sidebar-width";
+const INSPECTOR_DEFAULT_WIDTH = 320;
+const INSPECTOR_MIN_WIDTH = 260;
+const INSPECTOR_MAX_WIDTH = 560;
 
 function Header({ overview, activePath, inspectorOpen, onMenu, onInspector, onHelp }) {
   return (
@@ -142,17 +142,76 @@ function SidebarResizer({ width, workspaceRef, onResize }) {
   );
 }
 
+function InspectorResizer({ width, workspaceRef, onResize }) {
+  const drag = useRef(null);
+
+  const preview = (nextWidth, element) => {
+    const next = clampPanelWidth(nextWidth, INSPECTOR_MIN_WIDTH, INSPECTOR_MAX_WIDTH);
+    if (drag.current) drag.current.lastWidth = next;
+    workspaceRef.current?.style.setProperty("--inspector-width", `${next}px`);
+    element.setAttribute("aria-valuenow", String(next));
+  };
+
+  const finish = (event) => {
+    if (!drag.current) return;
+    const next = drag.current.lastWidth;
+    drag.current = null;
+    document.body.classList.remove("is-resizing-inspector");
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    onResize(next);
+  };
+
+  return (
+    <div
+      className="inspector-resizer"
+      role="separator"
+      tabIndex="0"
+      aria-label="Resize track inspector"
+      aria-controls="track-inspector"
+      aria-orientation="vertical"
+      aria-valuemin={INSPECTOR_MIN_WIDTH}
+      aria-valuemax={INSPECTOR_MAX_WIDTH}
+      aria-valuenow={width}
+      title="Drag to resize; double-click to reset"
+      onDoubleClick={(event) => {
+        preview(INSPECTOR_DEFAULT_WIDTH, event.currentTarget);
+        onResize(INSPECTOR_DEFAULT_WIDTH);
+      }}
+      onKeyDown={(event) => {
+        let next = null;
+        const step = event.shiftKey ? 48 : 16;
+        if (event.key === "ArrowLeft") next = width + step;
+        else if (event.key === "ArrowRight") next = width - step;
+        else if (event.key === "Home") next = INSPECTOR_DEFAULT_WIDTH;
+        if (next === null) return;
+        event.preventDefault();
+        onResize(clampPanelWidth(next, INSPECTOR_MIN_WIDTH, INSPECTOR_MAX_WIDTH));
+      }}
+      onPointerCancel={finish}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        drag.current = { lastWidth: width };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        document.body.classList.add("is-resizing-inspector");
+      }}
+      onPointerMove={(event) => {
+        if (!drag.current || !workspaceRef.current) return;
+        const bounds = workspaceRef.current.getBoundingClientRect();
+        preview(bounds.right - event.clientX, event.currentTarget);
+      }}
+      onPointerUp={finish}
+    >
+      <span aria-hidden="true" />
+    </div>
+  );
+}
+
 function Toolbar({
-  overview,
-  normalization,
-  scope,
-  labelIndex,
   mode,
   layout,
   disabled,
-  onNormalization,
-  onScope,
-  onLabel,
   onMode,
   onLayout,
   onZoom,
@@ -219,32 +278,6 @@ function Toolbar({
             </button>
           </div>
         </div>
-      </div>
-      <div className="toolbar-settings">
-        <label className="toolbar-field">
-          <span>Normalization</span>
-          <select value={normalization} disabled={disabled} onChange={(event) => onNormalization(event.target.value)}>
-            {(overview?.normalizations ?? []).map((option) => (
-              <option value={option.id} key={option.id}>{option.name}</option>
-            ))}
-          </select>
-        </label>
-        <label className="toolbar-field scope-field">
-          <span>Scope</span>
-          <select value={scope} disabled={disabled} onChange={(event) => onScope(event.target.value)}>
-            <option value="feature">Per feature</option>
-            <option value="global">Global</option>
-          </select>
-        </label>
-        <label className="toolbar-field">
-          <span>Label overlay</span>
-          <select value={labelIndex ?? ""} disabled={disabled} onChange={(event) => onLabel(event.target.value === "" ? null : Number(event.target.value))}>
-            <option value="">None</option>
-            {(overview?.binary_labels ?? []).map((label) => (
-              <option value={label.index} key={label.index}>{label.name}</option>
-            ))}
-          </select>
-        </label>
       </div>
     </div>
   );
@@ -320,19 +353,19 @@ export function App() {
   const [seriesIndex, setSeriesIndex] = useState(null);
   const [seriesPoints, setSeriesPoints] = useState(0);
   const [selectedFeatures, setSelectedFeatures] = useState([]);
-  const [normalization, setNormalization] = useState("none");
-  const [scope, setScope] = useState("feature");
-  const [labelIndex, setLabelIndex] = useState(null);
+  const [viewOptions, setViewOptions] = useState(() => ({
+    ...DEFAULT_VIEW_OPTIONS,
+    transform: { ...DEFAULT_VIEW_OPTIONS.transform },
+  }));
+  const { normalization, scope, labelIndex, mode, layout, transform } = viewOptions;
   const [viewport, setViewport] = useState([0, 0]);
   const [committedViewport, setCommittedViewport] = useState([0, 0]);
   const [data, setData] = useState(null);
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState("");
   const [booting, setBooting] = useState(true);
-  const [mode, setMode] = useState("pan");
-  const [layout, setLayout] = useState("stacked");
-  const [transform, setTransform] = useState({ ...DEFAULT_TRANSFORM });
   const [notice, setNotice] = useState("");
+  const [inspectorWidth, setInspectorWidth] = useState(INSPECTOR_DEFAULT_WIDTH);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
       const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_KEY));
@@ -350,6 +383,32 @@ export function App() {
   const itemsRequest = useRef(null);
   const workspaceRef = useRef(null);
 
+  const setNormalization = useCallback((value) => {
+    setViewOptions((current) => ({ ...current, normalization: value }));
+  }, []);
+  const setScope = useCallback((value) => {
+    setViewOptions((current) => ({ ...current, scope: value }));
+  }, []);
+  const setMode = useCallback((value) => {
+    setViewOptions((current) => ({ ...current, mode: value }));
+  }, []);
+  const setLayout = useCallback((value) => {
+    setViewOptions((current) => ({ ...current, layout: value }));
+  }, []);
+  const setTransform = useCallback((value) => {
+    setViewOptions((current) => ({
+      ...current,
+      transform: typeof value === "function" ? value(current.transform) : value,
+    }));
+  }, []);
+  const setLabelIndex = useCallback((value) => {
+    const label = (overview?.binary_labels ?? []).find((item) => item.index === value);
+    setViewOptions((current) => ({
+      ...current,
+      labelIndex: label?.index ?? null,
+    }));
+  }, [overview]);
+
   useEffect(() => {
     try {
       window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
@@ -357,14 +416,6 @@ export function App() {
       // Storage can be unavailable in privacy-restricted browser contexts.
     }
   }, [sidebarWidth]);
-
-  useEffect(() => {
-    const closeOverlayInspector = () => {
-      if (window.innerWidth <= 1240) setInspectorOpen(false);
-    };
-    window.addEventListener("resize", closeOverlayInspector);
-    return () => window.removeEventListener("resize", closeOverlayInspector);
-  }, []);
 
   const notify = useCallback((message) => {
     setNotice(message);
@@ -388,10 +439,21 @@ export function App() {
     setSelectedFeatures(
       next.features.slice(0, Math.min(6, next.limits?.max_selected_features ?? 128)).map((feature) => feature.index),
     );
-    setNormalization("none");
-    setScope("feature");
-    setLabelIndex(null);
-    setTransform({ ...DEFAULT_TRANSFORM });
+    setViewOptions((current) => {
+      const normalizations = next.normalizations ?? [];
+      const normalization = normalizations.some(
+        (item) => item.id === DEFAULT_VIEW_OPTIONS.normalization,
+      )
+        ? DEFAULT_VIEW_OPTIONS.normalization
+        : (normalizations[0]?.id ?? DEFAULT_VIEW_OPTIONS.normalization);
+      return {
+        ...current,
+        normalization,
+        scope: DEFAULT_VIEW_OPTIONS.scope,
+        labelIndex: DEFAULT_VIEW_OPTIONS.labelIndex,
+        transform: { ...DEFAULT_VIEW_OPTIONS.transform },
+      };
+    });
     setActiveTab("series");
   }, []);
 
@@ -577,13 +639,16 @@ export function App() {
         onInspector={() => setInspectorOpen((current) => !current)}
         onHelp={() => {
           setInspectorOpen(true);
-          notify("Keyboard shortcuts are listed in the inspector.");
+          notify("Interaction controls are listed in the inspector.");
         }}
       />
       <div
         className={`workspace ${inspectorOpen ? "has-inspector" : ""}`}
         ref={workspaceRef}
-        style={{ "--sidebar-width": `${sidebarWidth}px` }}
+        style={{
+          "--sidebar-width": `${sidebarWidth}px`,
+          "--inspector-width": `${inspectorWidth}px`,
+        }}
       >
         <Sidebar
           activeTab={activeTab}
@@ -604,9 +669,6 @@ export function App() {
           onLoadMore={() => fetchItems(true)}
           selectedFeatures={selectedFeatures}
           onToggleFeature={toggleFeature}
-          onSelectDefaultFeatures={() => {
-            setSelectedFeatures((overview?.features ?? []).slice(0, 6).map((feature) => feature.index));
-          }}
         />
         <SidebarResizer
           width={sidebarWidth}
@@ -615,16 +677,9 @@ export function App() {
         />
         <main className="editor" id="editor-main" tabIndex="-1">
           <Toolbar
-            overview={overview}
-            normalization={normalization}
-            scope={scope}
-            labelIndex={labelIndex}
             mode={mode}
             layout={layout}
             disabled={!data}
-            onNormalization={setNormalization}
-            onScope={setScope}
-            onLabel={setLabelIndex}
             onMode={setMode}
             onLayout={setLayout}
             onZoom={zoom}
@@ -664,15 +719,29 @@ export function App() {
           </section>
           <StatusBar data={data} viewport={viewport} totalPoints={seriesPoints} loading={dataLoading} notice={notice} />
         </main>
+        {inspectorOpen && (
+          <InspectorResizer
+            width={inspectorWidth}
+            workspaceRef={workspaceRef}
+            onResize={setInspectorWidth}
+          />
+        )}
         <Inspector
           open={inspectorOpen}
+          normalization={normalization}
+          scope={scope}
+          labelIndex={labelIndex}
           features={selectedFeatureRecords}
           transform={transform}
           overview={overview}
           data={data}
+          controlsDisabled={!data}
           onClose={() => setInspectorOpen(false)}
+          onNormalizationChange={setNormalization}
+          onScopeChange={setScope}
+          onLabelChange={setLabelIndex}
           onTransformChange={setTransform}
-          onTransformReset={() => setTransform({ ...DEFAULT_TRANSFORM })}
+          onTransformReset={() => setTransform({ ...DEFAULT_VIEW_OPTIONS.transform })}
           onMoveTrack={moveTrack}
           onRemoveTrack={toggleFeature}
           onSoloTrack={(featureIndex) => setSelectedFeatures([featureIndex])}

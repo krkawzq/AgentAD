@@ -75,7 +75,7 @@ class _Query:
 
 
 class WebUI:
-    """A small local web application over one ``SeriesData`` collection.
+    """A small local web application over one or more ``SeriesData`` collections.
 
     The collection may be provided up front or picked later from the file
     tree exposed by ``/api/tree`` and loaded through ``/api/open``; without
@@ -106,6 +106,8 @@ class WebUI:
         self._open_lock = threading.Lock()
         self.view: SeriesDataView | None = None
         self.collection_path: str | None = None
+        self._collections: dict[str, tuple[SeriesDataView, str | None]] = {}
+        self._current_source: str | None = None
         if sdata is None and path is not None:
             raise ValueError("path requires an initial SeriesData collection")
         if sdata is not None:
@@ -118,30 +120,65 @@ class WebUI:
             etag = f'"{hashlib.blake2s(body, digest_size=12).hexdigest()}"'
             self._assets[asset_path] = (body, content_type, etag)
 
+    @staticmethod
+    def _source_id(path: str | None) -> str:
+        if path is None:
+            return "initial"
+        digest = hashlib.blake2s(path.encode("utf-8"), digest_size=12).hexdigest()
+        return f"source-{digest}"
+
+    def _install_view(self, view: SeriesDataView, path: str | None) -> str:
+        source = self._source_id(path)
+        with self._state_lock:
+            self._collections[source] = (view, path)
+            self._current_source = source
+            self.view = view
+            self.collection_path = path
+        return source
+
     def set_collection(self, sdata: SeriesData, *, path: str | None = None) -> None:
-        """Install the collection served by the chart endpoints."""
+        """Install a collection and make it the legacy default source."""
         view = SeriesDataView(sdata)
         clean_path = None if path is None else self.tree.clean(path)
-        with self._state_lock:
-            self.view = view
-            self.collection_path = clean_path
+        self._install_view(view, clean_path)
 
-    def _require_collection(self) -> SeriesDataView:
-        with self._state_lock:
-            if self.view is None:
-                raise _NoCollection
-            return self.view
+    def _require_collection(self, source: str = "") -> SeriesDataView:
+        return self._collection_snapshot(source)[0]
 
-    def _collection_snapshot(self) -> tuple[SeriesDataView, str | None]:
+    def _collection_snapshot(
+        self, source: str = ""
+    ) -> tuple[SeriesDataView, str | None, str]:
         with self._state_lock:
-            if self.view is None:
+            selected = source or self._current_source
+            collection = None if selected is None else self._collections.get(selected)
+            if collection is None or selected is None:
                 raise _NoCollection
-            return self.view, self.collection_path
+            view, collection_path = collection
+            return view, collection_path, selected
+
+    def _overview_payload(
+        self, view: SeriesDataView, collection_path: str | None, source: str
+    ) -> dict[str, Any]:
+        payload = view.overview(self.title)
+        payload["source"] = source
+        if collection_path is not None:
+            payload["path"] = collection_path
+        return payload
 
     def _open_package(self, relative: str) -> dict[str, Any]:
         if not relative:
             raise ValueError("path is required")
         with self._open_lock:
+            clean_path = self.tree.clean(relative)
+            source = self._source_id(clean_path)
+            with self._state_lock:
+                cached = self._collections.get(source)
+                if cached is not None:
+                    view, collection_path = cached
+                    self._current_source = source
+                    self.view = view
+                    self.collection_path = collection_path
+                    return self._overview_payload(view, collection_path, source)
             target = self.tree.resolve(relative)
             if not self.tree.is_loadable(relative):
                 raise ValueError("path is not a supported data source")
@@ -152,13 +189,25 @@ class WebUI:
                 raise
             except Exception as error:
                 raise ValueError(f"failed to read package: {error}") from error
-            clean_path = self.tree.clean(relative)
-            with self._state_lock:
-                self.view = view
-                self.collection_path = clean_path
-            payload = view.overview(self.title)
-            payload["path"] = clean_path
-            return payload
+            source = self._install_view(view, clean_path)
+            return self._overview_payload(view, clean_path, source)
+
+    def _close_source(self, source: str) -> dict[str, Any]:
+        if not source:
+            raise ValueError("source is required")
+        with self._state_lock:
+            if self._collections.pop(source, None) is None:
+                raise _NoCollection
+            if self._current_source == source:
+                self._current_source = next(reversed(self._collections), None)
+                if self._current_source is None:
+                    self.view = None
+                    self.collection_path = None
+                else:
+                    self.view, self.collection_path = self._collections[
+                        self._current_source
+                    ]
+            return {"closed": source, "active": self._current_source}
 
     def api(
         self,
@@ -171,14 +220,15 @@ class WebUI:
             return self.tree.listing(params.text("path"))
         if path == "/api/open":
             return self._open_package(params.text("path"))
+        if path == "/api/close":
+            return self._close_source(params.text("source"))
         if path == "/api/overview":
-            view, collection_path = self._collection_snapshot()
-            payload = view.overview(self.title)
-            if collection_path is not None:
-                payload["path"] = collection_path
-            return payload
+            view, collection_path, source = self._collection_snapshot(
+                params.text("source")
+            )
+            return self._overview_payload(view, collection_path, source)
         if path == "/api/items":
-            return self._require_collection().items(
+            return self._require_collection(params.text("source")).items(
                 query=params.text("query"),
                 offset=params.integer("offset", 0),
                 limit=params.integer("limit", 50),
@@ -187,7 +237,7 @@ class WebUI:
             series_index = params.integer("series")
             if series_index is None:
                 raise ValueError("series is required")
-            return self._require_collection().data(
+            return self._require_collection(params.text("source")).data(
                 series_index=series_index,
                 feature_indices=params.integers("features"),
                 normalization=params.text("normalization", "none"),
@@ -320,7 +370,7 @@ class WebUI:
                 if not request.path.startswith("/api/"):
                     self._send_asset(request.path)
                     return
-                if request.path == "/api/open" and self.headers.get(
+                if request.path in {"/api/open", "/api/close"} and self.headers.get(
                     "Sec-Fetch-Site"
                 ) not in {None, "none", "same-origin"}:
                     self._send_json(

@@ -2,7 +2,116 @@
 
 export const MIN_SPAN = 4;
 export const TRACK_HEIGHT = 96;
-export const CHART_VERTICAL_PADDING = 52;
+export const CHART_VERTICAL_PADDING = 36;
+export const DEFAULT_VIEW_OPTIONS = Object.freeze({
+  normalization: "none",
+  scope: "feature",
+  labelIndex: null,
+  mode: "pan",
+  layout: "stacked",
+  transform: Object.freeze({
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    flipX: false,
+    flipY: false,
+  }),
+});
+export const DEFAULT_TAB_PREFERENCES = Object.freeze({
+  ...DEFAULT_VIEW_OPTIONS,
+  labelName: null,
+  inspectorOpen: false,
+  inspectorWidth: 320,
+});
+
+function clampFinite(value, minimum, maximum, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(minimum, Math.min(number, maximum));
+}
+
+export function parseTabPreferences(value) {
+  let source = value;
+  if (typeof source === "string") {
+    try {
+      source = JSON.parse(source);
+    } catch {
+      source = null;
+    }
+  }
+  if (!source || typeof source !== "object" || Array.isArray(source)) source = {};
+  const transform =
+    source.transform && typeof source.transform === "object" ? source.transform : {};
+  return {
+    normalization:
+      typeof source.normalization === "string" && source.normalization
+        ? source.normalization
+        : DEFAULT_TAB_PREFERENCES.normalization,
+    scope: source.scope === "global" ? "global" : DEFAULT_TAB_PREFERENCES.scope,
+    labelIndex: null,
+    labelName:
+      typeof source.labelName === "string" && source.labelName ? source.labelName : null,
+    mode: source.mode === "select" ? "select" : DEFAULT_TAB_PREFERENCES.mode,
+    layout: source.layout === "overlay" ? "overlay" : DEFAULT_TAB_PREFERENCES.layout,
+    transform: {
+      rotation: clampFinite(transform.rotation, -180, 180, 0),
+      scaleX: clampFinite(transform.scaleX, 0.25, 2, 1),
+      scaleY: clampFinite(transform.scaleY, 0.25, 4, 1),
+      flipX: transform.flipX === true,
+      flipY: transform.flipY === true,
+    },
+    inspectorOpen: source.inspectorOpen === true,
+    inspectorWidth: clampFinite(source.inspectorWidth, 260, 560, 320),
+  };
+}
+
+export function serializeTabPreferences(preferences) {
+  return JSON.stringify({ version: 1, ...parseTabPreferences(preferences) });
+}
+
+export function normalizeWheelDelta(deltaY, deltaX, deltaMode = 0) {
+  const vertical = Number(deltaY) || 0;
+  const horizontal = Number(deltaX) || 0;
+  const dominant = Math.abs(vertical) >= Math.abs(horizontal) ? vertical : horizontal;
+  const unit = deltaMode === 1 ? 16 : deltaMode === 2 ? 120 : 1;
+  return Math.max(-240, Math.min(240, dominant * unit));
+}
+
+export function zoomScale(scale, wheelDelta, minimum = 0.25, maximum = 4) {
+  const current = clampFinite(scale, minimum, maximum, 1);
+  const delta = Number(wheelDelta) || 0;
+  const next = current * Math.exp(-delta * 0.0015);
+  return Number(Math.max(minimum, Math.min(next, maximum)).toFixed(4));
+}
+
+export function positionTooltip(pointer, viewport, tooltip, padding = 8, gap = 14) {
+  const width = Math.max(0, Number(viewport?.width) || 0);
+  const height = Math.max(0, Number(viewport?.height) || 0);
+  const tooltipWidth = Math.max(0, Number(tooltip?.width) || 0);
+  const tooltipHeight = Math.max(0, Number(tooltip?.height) || 0);
+  const x = Math.max(0, Math.min(Number(pointer?.x) || 0, width));
+  const y = Math.max(0, Math.min(Number(pointer?.y) || 0, height));
+
+  let horizontal = "right";
+  let left = x + gap;
+  if (left + tooltipWidth > width - padding) {
+    horizontal = "left";
+    left = x - gap - tooltipWidth;
+  }
+  left = Math.max(padding, Math.min(left, Math.max(padding, width - tooltipWidth - padding)));
+
+  let vertical = "center";
+  let top = y - tooltipHeight / 2;
+  if (y < height / 3) {
+    vertical = "below";
+    top = y + gap;
+  } else if (y > (height * 2) / 3) {
+    vertical = "above";
+    top = y - gap - tooltipHeight;
+  }
+  top = Math.max(padding, Math.min(top, Math.max(padding, height - tooltipHeight - padding)));
+  return { x: left, y: top, horizontal, vertical };
+}
 
 export function chartCanvasHeight(featureCount, layout) {
   const count = Math.max(1, Math.floor(Number(featureCount) || 0));
