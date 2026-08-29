@@ -8,8 +8,8 @@
     "test": "node --test ../../../tests/test_visualize_core.mjs"
   },
   "dependencies": {
+    "@rc-component/tree": "1.5.2",
     "lucide-react": "1.35.0",
-    "rc-tree": "5.13.1",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },

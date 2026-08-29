@@ -311,6 +311,10 @@ body.is-resizing-sidebar {
   overflow: hidden;
 }
 
+.sidebar-panel[hidden] {
+  display: none;
+}
+
 .panel-heading,
 .section-heading {
   display: flex;
@@ -397,6 +401,7 @@ body.is-resizing-sidebar {
 .source-tree .rc-tree-list-holder {
   scrollbar-color: #c5ced8 transparent;
   scrollbar-width: thin;
+  contain: layout paint style;
 }
 
 .source-tree .rc-tree-treenode {
@@ -409,6 +414,9 @@ body.is-resizing-sidebar {
   list-style: none;
   outline: 0;
   white-space: nowrap;
+  transition:
+    background-color 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .source-tree .rc-tree-treenode:hover {
@@ -429,6 +437,16 @@ body.is-resizing-sidebar {
   background: none;
   cursor: pointer;
   vertical-align: middle;
+}
+
+.source-tree .tree-chevron {
+  transform: rotate(0deg);
+  transform-origin: center;
+  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.source-tree .tree-chevron.is-expanded {
+  transform: rotate(90deg);
 }
 
 .source-tree .rc-tree-treenode span.rc-tree-switcher-noop {
@@ -464,6 +482,10 @@ body.is-resizing-sidebar {
   cursor: pointer;
   text-decoration: none;
   vertical-align: middle;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .source-tree .rc-tree-treenode .rc-tree-node-content-wrapper:active {
@@ -517,6 +539,19 @@ body.is-resizing-sidebar {
   display: block;
   width: 13px;
   height: 13px;
+}
+
+.source-tree .rc-tree-treenode-motion {
+  overflow: hidden;
+}
+
+.source-tree-motion-appear-active,
+.source-tree-motion-enter-active,
+.source-tree-motion-leave-active {
+  transition:
+    height 220ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 160ms ease;
+  will-change: height, opacity;
 }
 
 .tree-limit-note {
@@ -838,6 +873,7 @@ body.is-resizing-sidebar {
 }
 
 .editor-surface {
+  --timeline-height: 52px;
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -850,7 +886,8 @@ body.is-resizing-sidebar {
 
 .canvas-shell {
   display: grid;
-  height: calc(100% - 66px);
+  height: var(--canvas-content-height);
+  max-height: calc(100% - var(--timeline-height));
   min-height: 0;
 }
 
@@ -863,6 +900,20 @@ body.is-resizing-sidebar {
   overscroll-behavior: contain;
   scrollbar-color: #c5ced8 #f4f6f8;
   scrollbar-width: thin;
+}
+
+.canvas-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.canvas-scroll::-webkit-scrollbar-track {
+  background: #f4f6f8;
+}
+
+.canvas-scroll::-webkit-scrollbar-thumb {
+  background: #b8c3cf;
+  border: 2px solid #f4f6f8;
+  border-radius: 999px;
 }
 
 .series-canvas {
@@ -951,32 +1002,12 @@ body.is-resizing-sidebar {
 
 .timeline {
   display: grid;
-  grid-template-columns: 92px minmax(0, 1fr);
-  height: 66px;
+  grid-template-columns: minmax(0, 1fr);
+  height: var(--timeline-height);
   align-items: center;
-  gap: 10px;
-  padding: 9px 14px;
+  padding: 8px;
   background: var(--surface-soft);
   border-top: 1px solid var(--border-strong);
-}
-
-.timeline-label span,
-.timeline-label output {
-  display: block;
-}
-
-.timeline-label span {
-  color: #68778b;
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-}
-
-.timeline-label output {
-  margin-top: 4px;
-  color: #35475d;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 8px;
 }
 
 .timeline-rail {
@@ -987,13 +1018,6 @@ body.is-resizing-sidebar {
   background: #e7ecf2;
   border: 1px solid #cbd4de;
   border-radius: 3px;
-}
-
-.timeline-density {
-  position: absolute;
-  inset: 8px 0;
-  opacity: 0.45;
-  background-image: repeating-linear-gradient(90deg, transparent 0 9px, #8498aa 10px 11px);
 }
 
 .timeline-window {
@@ -1017,8 +1041,8 @@ body.is-resizing-sidebar {
 }
 
 .timeline-thumb {
-  right: 7px;
-  left: 7px;
+  right: 4px;
+  left: 4px;
   cursor: grab;
 }
 
@@ -1028,7 +1052,7 @@ body.is-resizing-sidebar {
 
 .timeline-handle {
   z-index: 2;
-  width: 7px;
+  width: 4px;
   cursor: ew-resize;
   background: var(--primary);
 }
@@ -1597,22 +1621,8 @@ kbd {
     max-width: none;
   }
 
-  .canvas-shell {
-    height: calc(100% - 60px);
-  }
-
   .timeline {
-    grid-template-columns: 62px minmax(0, 1fr);
-    height: 60px;
-    gap: 5px;
-    padding: 7px;
-  }
-
-  .timeline-label output {
-    max-width: 60px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    padding: 6px;
   }
 
   .status-bar {

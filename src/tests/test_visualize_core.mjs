@@ -22,6 +22,27 @@ test("panel widths stay within accessible resize bounds", () => {
   assert.equal(core.clampPanelWidth(Number.NaN, 260, 480), 260);
 });
 
+test("track canvases keep a fixed lane height and stack only when needed", () => {
+  assert.equal(core.chartCanvasHeight(1, "stacked"), 148);
+  assert.equal(core.chartCanvasHeight(3, "stacked"), 340);
+  assert.equal(core.chartCanvasHeight(20, "overlay"), 148);
+});
+
+test("tree updates preserve untouched branches", () => {
+  const right = { key: "right", name: "right" };
+  const tree = [
+    { key: "left", children: [{ key: "target", children: undefined }] },
+    right,
+  ];
+  const children = [{ key: "child" }];
+  const next = core.replaceTreeChildren(tree, "target", children);
+  assert.notEqual(next, tree);
+  assert.notEqual(next[0], tree[0]);
+  assert.equal(next[1], right);
+  assert.deepEqual(next[0].children[0], { key: "target", children, isLeaf: false });
+  assert.equal(core.replaceTreeChildren(next, "missing", []), next);
+});
+
 test("nearestSampleIndex uses ordered nearest-neighbor lookup", () => {
   assert.equal(core.nearestSampleIndex([], 5), -1);
   assert.equal(core.nearestSampleIndex([0, 10, 20], 6), 1);

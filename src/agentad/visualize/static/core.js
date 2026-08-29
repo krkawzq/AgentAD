@@ -1,6 +1,33 @@
 /** Pure state and numeric helpers shared by the AgentAD WebUI. */
 
 export const MIN_SPAN = 4;
+export const TRACK_HEIGHT = 96;
+export const CHART_VERTICAL_PADDING = 52;
+
+export function chartCanvasHeight(featureCount, layout) {
+  const count = Math.max(1, Math.floor(Number(featureCount) || 0));
+  const lanes = layout === "overlay" ? 1 : count;
+  return lanes * TRACK_HEIGHT + CHART_VERTICAL_PADDING;
+}
+
+export function replaceTreeChildren(nodes, key, children) {
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    let nextNode = null;
+    if (node.key === key) {
+      nextNode = { ...node, children, isLeaf: children.length === 0 };
+    } else if (Array.isArray(node.children)) {
+      const nextChildren = replaceTreeChildren(node.children, key, children);
+      if (nextChildren !== node.children) nextNode = { ...node, children: nextChildren };
+    }
+    if (nextNode) {
+      const next = nodes.slice();
+      next[index] = nextNode;
+      return next;
+    }
+  }
+  return nodes;
+}
 
 export function clampPanelWidth(width, minimum = 240, maximum = 520) {
   const min = Math.max(0, Number(minimum) || 0);

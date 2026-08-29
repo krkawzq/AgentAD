@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
-  ChevronDown,
   ChevronRight,
   Database,
   File,
@@ -13,10 +12,34 @@ import {
   LoaderCircle,
   Search,
 } from "lucide-react";
-import Tree from "rc-tree";
+import Tree from "@rc-component/tree";
 
+import { replaceTreeChildren } from "../../static/core.js";
 import { api } from "./api.js";
 import { TRACK_COLORS } from "./renderer.js";
+
+const TREE_MOTION = Object.freeze({
+  motionName: "source-tree-motion",
+  motionDeadline: 280,
+  onAppearStart: () => ({ height: 0, opacity: 0 }),
+  onAppearActive: (element) => ({ height: element.scrollHeight, opacity: 1 }),
+  onLeaveStart: (element) => ({ height: element.offsetHeight, opacity: 1 }),
+  onLeaveActive: () => ({ height: 0, opacity: 0 }),
+});
+
+function useReducedMotion() {
+  const [reduced, setReduced] = useState(
+    () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
+  );
+  useEffect(() => {
+    const query = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!query) return undefined;
+    const update = () => setReduced(query.matches);
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return reduced;
+}
 
 function SidebarTabs({ active, onChange }) {
   const tabs = [
@@ -53,24 +76,14 @@ function toTreeNode(entry) {
   };
 }
 
-function replaceTreeChildren(nodes, key, children) {
-  return nodes.map((node) => {
-    if (node.key === key) {
-      return { ...node, children, isLeaf: children.length === 0 };
-    }
-    if (!Array.isArray(node.children)) return node;
-    return { ...node, children: replaceTreeChildren(node.children, key, children) };
-  });
-}
-
-function SourceTreeTitle({ node, openingPath }) {
+const SourceTreeTitle = memo(function SourceTreeTitle({ node, opening }) {
   return (
     <span className="source-tree-title" title={node.path}>
       <span>{node.name}</span>
-      {node.key === openingPath && <LoaderCircle className="spin" size={12} aria-label="Opening" />}
+      {opening && <LoaderCircle className="spin" size={12} aria-label="Opening" />}
     </span>
   );
-}
+});
 
 function treeIcon(props) {
   const node = props.data ?? props;
@@ -89,17 +102,24 @@ function treeIcon(props) {
 function switcherIcon(props) {
   if (props.loading) return <LoaderCircle className="spin" size={13} aria-hidden="true" />;
   if (props.isLeaf) return <span className="tree-switcher-spacer" />;
-  const Icon = props.expanded ? ChevronDown : ChevronRight;
-  return <Icon size={13} aria-hidden="true" />;
+  return (
+    <ChevronRight
+      className={`tree-chevron ${props.expanded ? "is-expanded" : ""}`}
+      size={13}
+      aria-hidden="true"
+    />
+  );
 }
 
-function SourceBrowser({ activePath, openingPath, onOpen }) {
+function SourceBrowser({ activePath, openingPath, onOpen, hidden }) {
   const treeHost = useRef(null);
   const [treeData, setTreeData] = useState(null);
   const [treeHeight, setTreeHeight] = useState(320);
+  const [expandedKeys, setExpandedKeys] = useState([]);
   const [root, setRoot] = useState("");
   const [truncatedPaths, setTruncatedPaths] = useState([]);
   const [error, setError] = useState("");
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -119,7 +139,11 @@ function SourceBrowser({ activePath, openingPath, onOpen }) {
   useEffect(() => {
     const element = treeHost.current;
     if (!element) return undefined;
-    const update = () => setTreeHeight(Math.max(120, element.clientHeight));
+    const update = () => {
+      if (element.clientHeight <= 0) return;
+      const next = Math.max(120, element.clientHeight);
+      setTreeHeight((current) => (current === next ? current : next));
+    };
     update();
     if (typeof ResizeObserver !== "function") {
       window.addEventListener("resize", update);
@@ -150,8 +174,16 @@ function SourceBrowser({ activePath, openingPath, onOpen }) {
     }
   }, []);
 
+  const renderTitle = useCallback(
+    (node) => <SourceTreeTitle node={node} opening={node.key === openingPath} />,
+    [openingPath],
+  );
+  const handleSelect = useCallback((_, info) => {
+    if (info.node.loadable) onOpen(String(info.node.key));
+  }, [onOpen]);
+
   return (
-    <div className="sidebar-panel source-panel" role="tabpanel">
+    <div className="sidebar-panel source-panel" role="tabpanel" hidden={hidden}>
       <div className="panel-heading">
         <div>
           <span className="eyebrow">LOCAL WORKSPACE</span>
@@ -170,16 +202,17 @@ function SourceBrowser({ activePath, openingPath, onOpen }) {
             height={treeHeight}
             itemHeight={36}
             virtual
+            motion={reducedMotion ? null : TREE_MOTION}
             showIcon
             icon={treeIcon}
             switcherIcon={switcherIcon}
             expandAction="click"
             loadData={loadData}
+            expandedKeys={expandedKeys}
+            onExpand={setExpandedKeys}
             selectedKeys={activePath ? [activePath] : []}
-            titleRender={(node) => <SourceTreeTitle node={node} openingPath={openingPath} />}
-            onSelect={(_, info) => {
-              if (info.node.loadable) onOpen(String(info.node.key));
-            }}
+            titleRender={renderTitle}
+            onSelect={handleSelect}
           />
         )}
       </div>
@@ -359,9 +392,12 @@ export function Sidebar({
         aria-label="Data navigation"
       >
         <SidebarTabs active={activeTab} onChange={onTabChange} />
-        {activeTab === "sources" && (
-          <SourceBrowser activePath={activePath} openingPath={openingPath} onOpen={onOpenSource} />
-        )}
+        <SourceBrowser
+          activePath={activePath}
+          openingPath={openingPath}
+          onOpen={onOpenSource}
+          hidden={activeTab !== "sources"}
+        />
         {activeTab === "series" && (
           <SeriesBrowser
             overview={overview}

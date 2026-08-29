@@ -329,7 +329,7 @@ export function App() {
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState("");
   const [booting, setBooting] = useState(true);
-  const [mode, setMode] = useState("select");
+  const [mode, setMode] = useState("pan");
   const [layout, setLayout] = useState("stacked");
   const [transform, setTransform] = useState({ ...DEFAULT_TRANSFORM });
   const [notice, setNotice] = useState("");

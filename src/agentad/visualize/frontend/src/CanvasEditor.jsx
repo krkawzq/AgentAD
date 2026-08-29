@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   MIN_SPAN,
+  chartCanvasHeight,
   clampWindow,
   formatNumber,
   nearestSampleIndex,
@@ -78,11 +79,10 @@ export function CanvasEditor({
   const [selection, setSelection] = useState(null);
   const [hover, setHover] = useState({ index: null, position: { x: 0, y: 0 } });
 
-  const canvasHeight = useMemo(() => {
-    if (layout === "overlay") return Math.max(320, size.viewportHeight);
-    const tracks = Math.max(1, data?.features.length ?? 1);
-    return Math.max(size.viewportHeight, tracks * 96 + 52);
-  }, [data?.features.length, layout, size.viewportHeight]);
+  const canvasHeight = useMemo(
+    () => chartCanvasHeight(data?.features.length ?? 0, layout),
+    [data?.features.length, layout],
+  );
 
   const dpr = useMemo(() => {
     const ideal = Math.min(window.devicePixelRatio || 1, 2);
@@ -261,6 +261,12 @@ export function CanvasEditor({
 
   const handleWheel = (event) => {
     if (!data || totalPoints <= 0) return;
+    const scroll = scrollRef.current;
+    const tracksOverflow =
+      layout === "stacked" && scroll && scroll.scrollHeight > scroll.clientHeight + 1;
+    if (tracksOverflow && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+      return;
+    }
     event.preventDefault();
     const span = viewport[1] - viewport[0];
     if (event.shiftKey || event.altKey) {
@@ -320,7 +326,10 @@ export function CanvasEditor({
   };
 
   return (
-    <div className="canvas-shell">
+    <div
+      className="canvas-shell"
+      style={{ "--canvas-content-height": `${canvasHeight}px` }}
+    >
       <div className="canvas-scroll" ref={scrollRef}>
         <canvas
           ref={baseCanvasRef}
@@ -428,14 +437,7 @@ export function TimelineNavigator({ viewport, totalPoints, onViewportChange }) {
 
   return (
     <div className="timeline" aria-label="Timeline viewport">
-      <div className="timeline-label">
-        <span>OVERVIEW</span>
-        <output>
-          {viewport[0].toLocaleString()} – {viewport[1].toLocaleString()}
-        </output>
-      </div>
       <div className="timeline-rail" ref={railRef} onPointerDown={jump}>
-        <div className="timeline-density" />
         <div className="timeline-window" style={{ left: `${left}%`, width: `${width}%` }}>
           <button
             type="button"
