@@ -69,8 +69,11 @@ class MMPAD(nn.Module):
             if self_join:
                 query_positions = torch.arange(start, stop, device=query.device)
                 similarity.masked_fill_(
-                    (query_positions[:, None] - reference_positions[None]).abs()
-                    < exclusion,
+                    (reference_positions[None] >= query_positions[:, None] - exclusion)
+                    & (
+                        reference_positions[None]
+                        < query_positions[:, None] + exclusion
+                    ),
                     -torch.inf,
                 )
 
@@ -80,7 +83,8 @@ class MMPAD(nn.Module):
                 value, index = candidates.max(1)
                 selected = torch.where(torch.isfinite(value), value, selected)
                 candidates.masked_fill_(
-                    (reference_positions[None] - index[:, None]).abs() < exclusion,
+                    (reference_positions[None] >= index[:, None] - exclusion)
+                    & (reference_positions[None] < index[:, None] + exclusion),
                     -torch.inf,
                 )
             chunks.append(selected)

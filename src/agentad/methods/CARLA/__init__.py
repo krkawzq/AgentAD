@@ -1,7 +1,15 @@
 """CARLA exports."""
 
-from .augmentation import inject_anomalies
 from .config import CARLAConfig
-from .model import CARLA, CARLALoss, CARLAOutput
+from .model import CARLA, CARLALoss, CARLAOutput, inject_anomalies
+from .train import CARLAClassificationLightningModule, CARLAPretextLightningModule
 
-__all__ = ["CARLA", "CARLAConfig", "CARLALoss", "CARLAOutput", "inject_anomalies"]
+__all__ = [
+    "CARLA",
+    "CARLAClassificationLightningModule",
+    "CARLAConfig",
+    "CARLALoss",
+    "CARLAOutput",
+    "CARLAPretextLightningModule",
+    "inject_anomalies",
+]

@@ -108,11 +108,11 @@ class _TimeFrequencyTransform(nn.Module):
         self.n_fft = config.n_fft
         self.hop_length = config.hop_length
         self.window_length = config.window_length
-        initial = torch.hann_window(config.window_length).clamp_min(1e-4)
-        self.window_logits = nn.Parameter(torch.log(torch.expm1(initial)))
+        self.window_epsilon = 1e-6
+        self.window_parameter = nn.Parameter(torch.hann_window(config.window_length))
 
     def _window(self, reference: Tensor) -> Tensor:
-        window = F.softplus(self.window_logits).to(reference)
+        window = F.softplus(self.window_parameter).to(reference) + self.window_epsilon
         return window / window.norm().clamp_min(1e-12) * math.sqrt(self.window_length)
 
     def forward(self, x: Tensor) -> Tensor:
@@ -149,18 +149,49 @@ class _TimeFrequencyTransform(nn.Module):
 
 
 class _PatchEmbedding(nn.Module):
-    def __init__(self, patch_length: int, stride: int, model_dim: int) -> None:
+    def __init__(
+        self, patch_length: int, stride: int, model_dim: int, dropout: float
+    ) -> None:
         super().__init__()
         self.patch_length = patch_length
         self.stride = stride
         self.projection = nn.Linear(patch_length, model_dim, bias=False)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: Tensor) -> Tensor:
         x = F.pad(x.transpose(1, 2), (0, self.patch_length - 1), mode="replicate")
         patches = x.unfold(-1, self.patch_length, self.stride)
-        return self.projection(
+        return self.dropout(self.projection(
             patches.reshape(-1, patches.shape[-2], self.patch_length)
+        ))
+
+
+class _ScaleEncoderLayer(nn.Module):
+    def __init__(self, config: LeftConfig) -> None:
+        super().__init__()
+        self.attention = nn.MultiheadAttention(
+            config.model_dim,
+            config.heads,
+            dropout=config.attention_dropout,
+            batch_first=True,
         )
+        self.projection_dropout = nn.Dropout(config.projection_dropout)
+        self.norm1 = nn.LayerNorm(config.model_dim)
+        self.norm2 = nn.LayerNorm(config.model_dim)
+        activation: nn.Module = nn.ReLU() if config.activation == "relu" else nn.GELU()
+        self.feedforward = nn.Sequential(
+            nn.Linear(config.model_dim, config.feedforward_dim),
+            activation,
+            nn.Dropout(config.feedforward_dropout),
+            nn.Linear(config.feedforward_dim, config.model_dim),
+            nn.Dropout(config.feedforward_dropout),
+        )
+
+    def forward(self, x: Tensor, mask: Tensor) -> Tensor:
+        attended, _ = self.attention(x, x, x, attn_mask=mask, need_weights=False)
+        x = self.norm1(x + self.projection_dropout(attended))
+        x = self.norm1(x)
+        return self.norm2(x + self.feedforward(x))
 
 
 class _CrossAttentionBlock(nn.Module):
@@ -171,17 +202,17 @@ class _CrossAttentionBlock(nn.Module):
         self.attention = nn.MultiheadAttention(
             config.model_dim,
             config.heads,
-            dropout=config.dropout,
+            dropout=config.fusion_dropout,
             batch_first=True,
         )
         self.feedforward_norm = nn.LayerNorm(config.model_dim)
         activation: nn.Module = nn.ReLU() if config.activation == "relu" else nn.GELU()
         self.feedforward = nn.Sequential(
-            nn.Linear(config.model_dim, config.feedforward_dim),
+            nn.Linear(config.model_dim, config.fusion_feedforward_dim),
             activation,
-            nn.Dropout(config.dropout),
-            nn.Linear(config.feedforward_dim, config.model_dim),
-            nn.Dropout(config.dropout),
+            nn.Dropout(config.fusion_dropout),
+            nn.Linear(config.fusion_feedforward_dim, config.model_dim),
+            nn.Dropout(config.fusion_dropout),
         )
 
     def forward(self, query: Tensor, context: Tensor) -> Tensor:
@@ -333,18 +364,13 @@ class Left(nn.Module):
         self.spectral_bands = _SpectralBands(config)
         self.transform = _TimeFrequencyTransform(config)
         self.patch_embedding = _PatchEmbedding(
-            config.patch_length, self.stride, config.model_dim
+            config.patch_length,
+            self.stride,
+            config.model_dim,
+            config.patch_dropout,
         )
         self.scale_encoder = nn.ModuleList(
-            nn.TransformerEncoderLayer(
-                config.model_dim,
-                config.heads,
-                config.feedforward_dim,
-                dropout=config.dropout,
-                activation=config.activation,
-                batch_first=True,
-                norm_first=False,
-            )
+            _ScaleEncoderLayer(config)
             for _ in range(config.encoder_layers)
         )
         self.scale_norm = nn.LayerNorm(config.model_dim)
@@ -354,11 +380,11 @@ class Left(nn.Module):
         activation: nn.Module = nn.ReLU() if config.activation == "relu" else nn.GELU()
         self.multiscale_decoder = nn.Sequential(
             nn.LayerNorm(config.model_dim),
-            nn.Linear(config.model_dim, config.feedforward_dim),
+            nn.Linear(config.model_dim, config.decoder_feedforward_dim),
             activation,
-            nn.Dropout(config.dropout),
-            nn.Linear(config.feedforward_dim, config.model_dim),
-            nn.Dropout(config.dropout),
+            nn.Dropout(config.decoder_dropout),
+            nn.Linear(config.decoder_feedforward_dim, config.model_dim),
+            nn.Dropout(config.decoder_dropout),
         )
         self.patch_projection = nn.Sequential(
             nn.LayerNorm(config.model_dim),
@@ -368,22 +394,25 @@ class Left(nn.Module):
         self.frequency_prototypes = _PrototypeBank(config)
         self.latent_fusion = nn.Sequential(
             nn.LayerNorm(2 * config.model_dim),
-            nn.Linear(2 * config.model_dim, 2 * config.model_dim),
+            nn.Linear(2 * config.model_dim, config.latent_fusion_hidden),
             nn.GELU(),
-            nn.Linear(2 * config.model_dim, config.model_dim),
+            nn.Linear(config.latent_fusion_hidden, config.model_dim),
         )
         self.time_decoder = nn.Sequential(
-            nn.Linear(config.model_dim, config.model_dim),
+            nn.Linear(config.model_dim, config.cycle_decoder_hidden),
             nn.GELU(),
-            nn.Linear(config.model_dim, config.sequence_length * config.input_features),
+            nn.Linear(
+                config.cycle_decoder_hidden,
+                config.sequence_length * config.input_features,
+            ),
         )
         frequencies = config.n_fft // 2 + 1
         frames = config.sequence_length // config.hop_length + 1
         self.frequency_shape = (config.input_features, 2, frequencies, frames)
         self.frequency_decoder = nn.Sequential(
-            nn.Linear(config.model_dim, config.model_dim),
+            nn.Linear(config.model_dim, config.cycle_decoder_hidden),
             nn.GELU(),
-            nn.Linear(config.model_dim, math.prod(self.frequency_shape)),
+            nn.Linear(config.cycle_decoder_hidden, math.prod(self.frequency_shape)),
         )
         self.temporal_lengths = tuple(
             math.ceil(config.sequence_length / factor)
@@ -481,7 +510,7 @@ class Left(nn.Module):
         )
         scale_tokens = scale_tokens + self.positions.to(scale_tokens.dtype)
         for layer in self.scale_encoder:
-            scale_tokens = layer(scale_tokens, src_mask=self.scale_mask)
+            scale_tokens = layer(scale_tokens, self.scale_mask)
         scale_tokens = self.scale_norm(scale_tokens)
 
         spectrum = self.transform(x)

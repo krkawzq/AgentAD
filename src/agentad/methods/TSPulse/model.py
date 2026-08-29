@@ -1,8 +1,9 @@
-"""Time/FFT patch mixer used by TSPulse zero-shot and fine-tuned modes."""
+"""Exact adapter around the official Granite TSPulse reconstruction core."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 from torch import Tensor, nn
@@ -12,217 +13,141 @@ from .._utils import evaluation_mode, sliding_windows, validate_series
 from .config import TSPulseConfig
 
 
-class _MixerLayer(nn.Module):
-    def __init__(self, config: TSPulseConfig, token_count: int) -> None:
-        super().__init__()
-        hidden = config.expansion_factor * config.model_dim
-        self.features = config.input_features
-        self.mix_channels = config.channel_mode == "mix" and config.input_features > 1
-        self.norm1 = nn.LayerNorm(config.model_dim)
-        self.token_mixer = nn.Conv1d(
-            config.model_dim,
-            config.model_dim,
-            3,
-            padding=1,
-            groups=config.model_dim,
+def _reference_types() -> tuple[type[Any], type[Any]]:
+    try:
+        from tsfm_public.models.tspulse.configuration_tspulse import (
+            TSPulseConfig as ReferenceConfig,
         )
-        self.gate = nn.Linear(config.model_dim, 1)
-        self.norm2 = nn.LayerNorm(config.model_dim)
-        self.feature_mixer = nn.Sequential(
-            nn.Linear(config.model_dim, hidden),
-            nn.GELU(),
-            nn.Dropout(config.dropout),
-            nn.Linear(hidden, config.model_dim),
-            nn.Dropout(config.dropout),
+        from tsfm_public.models.tspulse.modeling_tspulse import (
+            TSPulseForReconstruction as ReferenceModel,
         )
-        self.channel_mixer = (
-            nn.Linear(config.input_features, config.input_features, bias=False)
-            if self.mix_channels
-            else None
-        )
-        self.token_count = token_count
+    except ImportError as exc:
+        raise ImportError(
+            "TSPulse requires the pinned granite-tsfm dependency. Run `uv sync`."
+        ) from exc
+    return ReferenceConfig, ReferenceModel
 
-    def forward(self, x: Tensor) -> Tensor:
-        batch, channels, tokens, width = x.shape
-        normalized = self.norm1(x).reshape(batch * channels, tokens, width)
-        mixed = self.token_mixer(normalized.transpose(1, 2)).transpose(1, 2)
-        gate = self.gate(normalized).softmax(1)
-        x = x + (mixed * (1 + gate)).reshape_as(x)
-        x = x + self.feature_mixer(self.norm2(x))
-        if self.channel_mixer is not None:
-            x = x + self.channel_mixer(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
-        return x
+
+def _stitch_function() -> Any:
+    try:
+        from tsfm_public.models.tspulse.utils.helpers import (
+            patchwise_stitched_reconstruction,
+        )
+    except ImportError as exc:
+        raise ImportError(
+            "TSPulse scoring requires the pinned granite-tsfm dependency."
+        ) from exc
+    return patchwise_stitched_reconstruction
 
 
 @dataclass(frozen=True, slots=True)
 class TSPulseOutput:
     time_reconstruction: Tensor
-    frequency_reconstruction: Tensor
-    forecast: Tensor
+    frequency_reconstruction: Tensor | None
+    forecast: Tensor | None
     masked_points: Tensor
+    raw_output: Any
 
 
 @dataclass(frozen=True, slots=True)
 class TSPulseLoss:
     total: Tensor
     time_reconstruction: Tensor
+    masked_time_reconstruction: Tensor
     frequency_reconstruction: Tensor
+    frequency_time_reconstruction: Tensor
+    frequency_probability: Tensor
     forecast: Tensor
 
 
 class TSPulse(nn.Module):
-    """Shared TSPulse architecture for zero-shot scoring and fine-tuning."""
+    """AgentAD interface backed by the complete official TSPulse model."""
 
-    def __init__(self, config: TSPulseConfig) -> None:
+    def __init__(self, config: TSPulseConfig, *, core: nn.Module | None = None) -> None:
         super().__init__()
         self.config = config
-        self.patch_count = config.context_length // config.patch_length
-        token_count = 2 * self.patch_count + config.register_tokens
-        self.time_embedding = nn.Linear(config.patch_length, config.model_dim)
-        self.frequency_embedding = nn.Linear(2, config.model_dim)
-        self.register = nn.Parameter(
-            torch.randn(config.register_tokens, config.model_dim) * 0.02
-        )
-        self.mask_token = nn.Parameter(torch.zeros(config.patch_length))
-        self.encoder = nn.ModuleList(
-            _MixerLayer(config, token_count) for _ in range(config.layers)
-        )
-        self.decoder = nn.ModuleList(
-            _MixerLayer(config, token_count) for _ in range(config.decoder_layers)
-        )
-        self.time_head = nn.Linear(config.model_dim, config.patch_length)
-        self.frequency_head = nn.Linear(config.model_dim, 2)
-        self.forecast_head = nn.Linear(
-            config.model_dim, config.forecast_length * config.input_features
-        )
-        if config.revin_affine:
-            self.revin_weight = nn.Parameter(torch.ones(1, 1, config.input_features))
-            self.revin_bias = nn.Parameter(torch.zeros(1, 1, config.input_features))
-        else:
-            self.register_parameter("revin_weight", None)
-            self.register_parameter("revin_bias", None)
-
-    def _normalize(self, x: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-        location = x.mean(1, keepdim=True)
-        scale = x.var(1, keepdim=True, unbiased=False).add(self.config.epsilon).sqrt()
-        normalized = (x - location) / scale
-        if self.revin_weight is not None:
-            normalized = normalized * self.revin_weight + self.revin_bias
-        return normalized, location, scale
-
-    def _denormalize(self, x: Tensor, location: Tensor, scale: Tensor) -> Tensor:
-        if self.revin_weight is not None:
-            denominator = torch.where(
-                self.revin_weight.abs() < self.config.epsilon,
-                self.revin_weight.sign().masked_fill(self.revin_weight == 0, 1)
-                * self.config.epsilon,
-                self.revin_weight,
+        if core is None:
+            ReferenceConfig, ReferenceModel = _reference_types()
+            core = ReferenceModel(ReferenceConfig(**config.reference_kwargs()))
+        self.core = core
+        core_channels = int(self.core.config.num_input_channels)
+        if core_channels != config.input_features:
+            raise ValueError(
+                "TSPulse core feature count differs from the AgentAD configuration"
             )
-            x = (x - self.revin_bias) / denominator
-        return x * scale + location
 
-    def _random_observed_mask(
-        self, series: Tensor, generator: torch.Generator | None
-    ) -> Tensor:
-        selected = (
-            torch.rand(
-                series.shape[0],
-                self.patch_count,
-                device=series.device,
-                generator=generator,
-            )
-            < self.config.mask_ratio
+    @classmethod
+    def from_pretrained(
+        cls,
+        config: TSPulseConfig,
+        model_name_or_path: str | None = None,
+        **kwargs: Any,
+    ) -> "TSPulse":
+        _, ReferenceModel = _reference_types()
+        source = model_name_or_path or config.pretrained_model_name
+        if source is None:
+            raise ValueError("a TSPulse pretrained model name or path is required")
+        decoder_mode = f"{config.decoder_channel_mode}_channel"
+        if config.input_features == 1:
+            decoder_mode = "common_channel"
+        core = ReferenceModel.from_pretrained(
+            source,
+            num_input_channels=config.input_features,
+            decoder_mode=decoder_mode,
+            scaling=config.scaling,
+            mask_type="user",
+            **kwargs,
         )
-        selected[:, 0] |= ~selected.any(1)
-        masked = selected.repeat_interleave(self.config.patch_length, 1)
-        return ~masked[..., None].expand_as(series)
+        return cls(config, core=core)
+
+    @property
+    def context_length(self) -> int:
+        return int(self.core.config.context_length)
+
+    @property
+    def patch_length(self) -> int:
+        return int(self.core.config.patch_length)
+
+    def _validate_windows(self, series: Tensor) -> Tensor:
+        series = validate_series(series, length=self.context_length)
+        if series.shape[2] != self.config.input_features:
+            raise ValueError("series feature count does not match TSPulse")
+        return series
 
     def forward(
         self,
         series: Tensor,
         observed_mask: Tensor | None = None,
+        *,
+        future_values: Tensor | None = None,
+        return_loss: bool = False,
     ) -> TSPulseOutput:
-        series = validate_series(series, length=self.config.context_length)
-        if series.shape[2] != self.config.input_features:
-            raise ValueError("series feature count does not match the TSPulse config")
-        if observed_mask is None:
-            observed_mask = torch.ones_like(series, dtype=torch.bool)
-        if observed_mask.shape != series.shape:
-            raise ValueError("observed_mask must match series shape")
-        observed_mask = observed_mask.bool()
-        normalized, location, scale = self._normalize(series)
-        relative = torch.arange(self.config.context_length, device=series.device)
-        replacement = self.mask_token[relative % self.config.patch_length]
-        replacement = replacement[None, :, None].expand_as(normalized)
-        masked = torch.where(observed_mask, normalized, replacement)
-
-        time_patches = masked.transpose(1, 2).reshape(
-            series.shape[0],
-            self.config.input_features,
-            self.patch_count,
-            self.config.patch_length,
+        series = self._validate_windows(series)
+        if observed_mask is not None and observed_mask.shape != series.shape:
+            raise ValueError("observed_mask must match the input series")
+        raw = self.core(
+            past_values=series,
+            future_values=future_values,
+            past_observed_mask=observed_mask,
+            return_loss=return_loss,
+            return_dict=True,
         )
-        time_tokens = self.time_embedding(time_patches)
-        spectrum = torch.fft.rfft(masked, dim=1)
-        frequency_values = torch.stack((spectrum.real, spectrum.imag), dim=-1)
-        frequency_values = (
-            F.interpolate(
-                frequency_values.permute(0, 2, 3, 1).reshape(
-                    series.shape[0] * self.config.input_features, 2, -1
-                ),
-                size=self.patch_count,
-                mode="linear",
-                align_corners=False,
-            )
-            .reshape(series.shape[0], self.config.input_features, 2, self.patch_count)
-            .permute(0, 1, 3, 2)
-        )
-        frequency_tokens = self.frequency_embedding(frequency_values)
-        register = self.register[None, None].expand(
-            series.shape[0], self.config.input_features, -1, -1
-        )
-        hidden = torch.cat((time_tokens, frequency_tokens, register), dim=2)
-        for layer in self.encoder:
-            hidden = layer(hidden)
-        for layer in self.decoder:
-            hidden = layer(hidden)
-
-        time_values = (
-            self.time_head(hidden[:, :, : self.patch_count])
-            .reshape(
-                series.shape[0], self.config.input_features, self.config.context_length
-            )
-            .transpose(1, 2)
-        )
-        frequency_values = self.frequency_head(
-            hidden[:, :, self.patch_count : 2 * self.patch_count]
-        )
-        frequency_values = F.interpolate(
-            frequency_values.permute(0, 1, 3, 2).reshape(
-                series.shape[0] * self.config.input_features, 2, self.patch_count
-            ),
-            size=self.config.context_length // 2 + 1,
-            mode="linear",
-            align_corners=False,
-        ).reshape(series.shape[0], self.config.input_features, 2, -1)
-        reconstructed_spectrum = torch.complex(
-            frequency_values[:, :, 0], frequency_values[:, :, 1]
-        ).transpose(1, 2)
-        frequency_reconstruction = torch.fft.irfft(
-            reconstructed_spectrum,
-            n=self.config.context_length,
-            dim=1,
-        )
-        pooled = hidden.mean((1, 2))
-        forecast = self.forecast_head(pooled).reshape(
-            series.shape[0], self.config.forecast_length, self.config.input_features
-        )
+        mask = raw.mask
+        if mask is None:
+            mask = torch.zeros_like(series, dtype=torch.bool)
         return TSPulseOutput(
-            self._denormalize(time_values, location, scale),
-            self._denormalize(frequency_reconstruction, location, scale),
-            self._denormalize(forecast, location, scale),
-            ~observed_mask,
+            raw.reconstruction_outputs,
+            raw.reconstructed_ts_from_fft,
+            raw.forecast_output,
+            mask.bool(),
+            raw,
         )
+
+    @staticmethod
+    def _loss_scalar(value: Tensor | None, reference: Tensor) -> Tensor:
+        if value is None:
+            return reference.new_zeros(())
+        return value.mean()
 
     def compute_loss(
         self,
@@ -232,164 +157,121 @@ class TSPulse(nn.Module):
         observed_mask: Tensor | None = None,
         generator: torch.Generator | None = None,
     ) -> TSPulseLoss:
-        series = validate_series(series, length=self.config.context_length)
-        if series.shape[2] != self.config.input_features:
-            raise ValueError("series feature count does not match the TSPulse config")
-        if observed_mask is None:
-            observed_mask = self._random_observed_mask(series, generator)
-        elif observed_mask.shape != series.shape:
-            raise ValueError("observed_mask must match series shape")
-        observed_mask = observed_mask.bool()
-        if observed_mask.all():
-            raise ValueError("observed_mask must hide at least one point")
-        if future_values is not None and future_values.shape != (
-            series.shape[0],
-            self.config.forecast_length,
-            self.config.input_features,
-        ):
-            raise ValueError(
-                "future_values must have shape "
-                f"[{series.shape[0]}, {self.config.forecast_length}, "
-                f"{self.config.input_features}]"
+        devices = []
+        if series.is_cuda and series.device.index is not None:
+            devices = [series.device.index]
+        with torch.random.fork_rng(devices=devices):
+            if generator is not None:
+                seed = generator.initial_seed()
+                torch.manual_seed(seed)
+                if series.is_cuda:
+                    torch.cuda.manual_seed(seed)
+            output = self(
+                series,
+                observed_mask,
+                future_values=future_values,
+                return_loss=True,
             )
-        output = self(series, observed_mask)
-        selected = output.masked_points
-        time_loss = F.mse_loss(output.time_reconstruction[selected], series[selected])
-        frequency_loss = F.mse_loss(
-            output.frequency_reconstruction[selected], series[selected]
+        raw = output.raw_output
+        total = self._loss_scalar(raw.loss, series)
+        return TSPulseLoss(
+            total,
+            self._loss_scalar(raw.reconstruction_loss, series),
+            self._loss_scalar(raw.masked_reconstruction_loss, series),
+            self._loss_scalar(raw.fft_loss, series),
+            self._loss_scalar(raw.reconstructed_ts_from_fft_loss, series),
+            self._loss_scalar(raw.fft_prob_loss, series),
+            self._loss_scalar(raw.forecast_loss, series),
         )
-        forecast_loss = (
-            F.mse_loss(output.forecast, future_values)
-            if future_values is not None
-            else time_loss.new_zeros(())
-        )
-        total = (
-            self.config.time_loss_weight * time_loss
-            + self.config.frequency_loss_weight * frequency_loss
-            + self.config.forecast_loss_weight * forecast_loss
-        )
-        return TSPulseLoss(total, time_loss, frequency_loss, forecast_loss)
-
-    def _stitched_reconstruction(
-        self,
-        windows: Tensor,
-        *,
-        frequency: bool,
-    ) -> Tensor:
-        start = self.config.context_length - self.config.aggregation_length
-        patch_starts = torch.arange(
-            start,
-            self.config.context_length,
-            self.config.patch_length,
-            device=windows.device,
-        )
-        patch_count = patch_starts.numel()
-        expanded = (
-            windows[:, None]
-            .expand(-1, patch_count, -1, -1)
-            .reshape(-1, self.config.context_length, self.config.input_features)
-        )
-        positions = torch.arange(self.config.context_length, device=windows.device)
-        masked = (positions[None] >= patch_starts[:, None]) & (
-            positions[None] < patch_starts[:, None] + self.config.patch_length
-        )
-        observed = (
-            (~masked)[None, :, :, None]
-            .expand(windows.shape[0], -1, -1, self.config.input_features)
-            .reshape_as(expanded)
-        )
-        output = self(expanded, observed)
-        source = (
-            output.frequency_reconstruction if frequency else output.time_reconstruction
-        ).reshape(
-            windows.shape[0],
-            patch_count,
-            self.config.context_length,
-            self.config.input_features,
-        )
-        offsets = torch.arange(self.config.patch_length, device=windows.device)
-        indices = patch_starts[:, None] + offsets[None]
-        gather_indices = indices[None, :, :, None].expand(
-            windows.shape[0], -1, -1, self.config.input_features
-        )
-        selected = source.gather(2, gather_indices)
-        reconstruction = windows.clone()
-        reconstruction[:, start:] = selected.flatten(1, 2)
-        return reconstruction
 
     @staticmethod
-    def _normalize_score(score: Tensor, epsilon: float) -> Tensor:
+    def _normalize_score(score: Tensor) -> Tensor:
         minimum = score.amin(1, keepdim=True)
         maximum = score.amax(1, keepdim=True)
-        return (score - minimum) / (maximum - minimum).clamp_min(epsilon)
+        return (score - minimum) / (maximum - minimum).clamp_min(1e-12)
 
-    def _align_context_scores(self, score: Tensor, output_length: int) -> Tensor:
-        left = self.config.context_length - self.config.aggregation_length // 2
-        right = output_length - left - score.shape[1]
+    def _align_reconstruction_scores(self, score: Tensor, length: int) -> Tensor:
+        aggregation = min(self.config.aggregation_length, self.context_length)
+        left = self.context_length - aggregation // 2
+        right = length - left - score.shape[1]
         return torch.cat(
             (
                 score[:, :1].expand(-1, left),
                 score,
-                score[:, -1:].expand(-1, max(right, 0)),
+                score[:, -1:].expand(-1, max(0, right)),
             ),
             dim=1,
-        )[:, :output_length]
+        )[:, :length]
+
+    def _reconstruction_window_score(
+        self, windows: Tensor, *, frequency: bool
+    ) -> Tensor:
+        aggregation = min(self.config.aggregation_length, self.context_length)
+        if aggregation < self.patch_length or aggregation % self.patch_length:
+            raise ValueError(
+                "aggregation_length must be at least and divisible by patch_length"
+            )
+        key = "reconstructed_ts_from_fft" if frequency else "reconstruction_outputs"
+        stitched = _stitch_function()(
+            model=self.core,
+            past_values=windows,
+            patch_size=self.patch_length,
+            keys_to_stitch=[key],
+            keys_to_aggregate=[],
+            reconstruct_start=self.context_length - aggregation,
+            reconstruct_end=self.context_length,
+            debug=False,
+        )
+        if isinstance(stitched, tuple):
+            stitched = stitched[0]
+        reconstructed = stitched[key]
+        start = self.context_length - aggregation
+        return (reconstructed[:, start:] - windows[:, start:]).square().mean((1, 2))
 
     @torch.inference_mode()
     def score(self, series: Tensor, *, batch_size: int = 128) -> Tensor:
-        minimum_length = self.config.context_length + (
-            "forecast" in self.config.score_modes
-        )
-        series = validate_series(series, min_length=minimum_length)
+        series = validate_series(series, min_length=self.context_length)
+        if series.shape[2] != self.config.input_features:
+            raise ValueError("series feature count does not match TSPulse")
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
         with evaluation_mode(self):
-            windows = sliding_windows(series, self.config.context_length)
+            windows = sliding_windows(series, self.context_length)
             flattened = windows.flatten(0, 1)
             mode_scores: list[Tensor] = []
             for mode in self.config.score_modes:
                 if mode == "forecast":
                     forecast_windows = sliding_windows(
-                        series[:, :-1], self.config.context_length
-                    )
-                    forecast_flat = forecast_windows.flatten(0, 1)
-                    targets = series[:, self.config.context_length :].flatten(0, 1)
-                    chunks = []
+                        series[:, :-1], self.context_length
+                    ).flatten(0, 1)
+                    targets = series[:, self.context_length :].flatten(0, 1)
+                    values: list[Tensor] = []
                     offset = 0
-                    for chunk in forecast_flat.split(batch_size):
-                        output = self(chunk).forecast[:, 0]
-                        chunks.append(
-                            (output - targets[offset : offset + len(chunk)])
+                    for chunk in forecast_windows.split(batch_size):
+                        prediction = self(chunk).forecast
+                        if prediction is None:
+                            raise RuntimeError("TSPulse core has no forecast head")
+                        values.append(
+                            (prediction[:, 0] - targets[offset : offset + len(chunk)])
                             .square()
                             .mean(1)
                         )
                         offset += len(chunk)
-                    score = torch.cat(chunks).reshape(series.shape[0], -1)
+                    score = torch.cat(values).reshape(series.shape[0], -1)
                     score = torch.cat(
-                        (
-                            score[:, :1].expand(-1, self.config.context_length),
-                            score,
-                        ),
-                        dim=1,
+                        (score[:, :1].expand(-1, self.context_length), score), dim=1
                     )[:, : series.shape[1]]
                 else:
-                    chunks = []
-                    for chunk in flattened.split(batch_size):
-                        reconstruction = self._stitched_reconstruction(
+                    values = [
+                        self._reconstruction_window_score(
                             chunk, frequency=mode == "frequency"
                         )
-                        start = (
-                            self.config.context_length - self.config.aggregation_length
-                        )
-                        chunks.append(
-                            (reconstruction[:, start:] - chunk[:, start:])
-                            .square()
-                            .mean((1, 2))
-                        )
-                    score = torch.cat(chunks).reshape(series.shape[0], -1)
-                    score = self._align_context_scores(score, series.shape[1])
-                mode_scores.append(self._normalize_score(score, self.config.epsilon))
-            combined = torch.stack(mode_scores).mean(0)
+                        for chunk in flattened.split(batch_size)
+                    ]
+                    score = torch.cat(values).reshape(series.shape[0], -1)
+                    score = self._align_reconstruction_scores(score, series.shape[1])
+                mode_scores.append(self._normalize_score(score))
+            combined = torch.stack(mode_scores).mean(0).pow(self.config.score_exponent)
             if self.config.smoothing_window > 1:
                 kernel = combined.new_full(
                     (1, 1, self.config.smoothing_window),
@@ -405,8 +287,11 @@ class TSPulse(nn.Module):
 
 
 class TSPulseZeroShot(TSPulse):
-    """TSPulse used directly with pretrained weights."""
+    def __init__(self, config: TSPulseConfig, *, core: nn.Module | None = None) -> None:
+        if core is None:
+            raise ValueError("TSPulseZeroShot must be created with from_pretrained()")
+        super().__init__(config, core=core)
 
 
 class TSPulseFineTune(TSPulse):
-    """TSPulse exposing masked reconstruction fine-tuning through compute_loss()."""
+    pass

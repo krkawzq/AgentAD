@@ -16,13 +16,16 @@ license-files = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "granite-tsfm>=0.3.8",
+    "lightning==2.6.1",
     "numba>=0.61,<1",
     "numpy>=2.0,<3",
     "pandas>=2.2,<3",
     "pyarrow>=25.0.1",
     "scipy>=1.18.1",
     "statsmodels>=0.15.0",
-    "torch>=2.13.0",
+    "torch>=2.10,<2.12",
+    "xlstm==2.0.5",
     "zarr>=3.3.0",
 ]
 
@@ -32,19 +35,20 @@ download = [
     "requests>=2.32,<3",
 ]
 
-# torch 使用官方 PyTorch 源提供的 CUDA 13.0 (cu130) wheel
+# Worker CUDA 上限为 12.8，PyTorch 必须使用 cu128 wheel。
 [[tool.uv.index]]
-name = "pytorch-cu130"
-url = "https://download.pytorch.org/whl/cu130"
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-cu130" }
+granite-tsfm = { path = "forks/granite-tsfm" }
+torch = { index = "pytorch-cu128" }
 
 [dependency-groups]
 dev = [
     "pytest>=8.3,<9",
-    "scikit-learn>=1.9.0",
+    "scikit-learn>=1.7,<1.8",
 ]
 
 [tool.pytest.ini_options]

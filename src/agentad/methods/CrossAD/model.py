@@ -213,9 +213,10 @@ class _ContextMemory(nn.Module):
             )
             self.ema_sum.mul_(self.decay).add_(assigned_sum, alpha=1 - self.decay)
             total = self.ema_count.sum()
+            dimension = flat_context.shape[1]
             smoothed = (
                 (self.ema_count + self.epsilon)
-                / (total + self.context.shape[0] * self.epsilon)
+                / (total + dimension * self.epsilon)
                 * total
             )
             self.context.copy_(self.ema_sum / smoothed[:, None, None])

@@ -139,8 +139,8 @@ class _EncoderLayer(nn.Module):
         feature_ids: Tensor,
         valid_tokens: Tensor,
     ) -> Tensor:
-        x = x + self.dropout(
-            self.self_attn(self.input_norm(x), frequencies, feature_ids, valid_tokens)
+        x = x + self.self_attn(
+            self.input_norm(x), frequencies, feature_ids, valid_tokens
         )
         return x + self.dropout(self.mlp(self.output_norm(x)))
 
@@ -258,13 +258,15 @@ class TimeRCD(nn.Module):
 
     def _random_mask(self, series: Tensor, generator: torch.Generator | None) -> Tensor:
         patches = math.ceil(series.shape[1] / self.config.patch_length)
-        selected = (
-            torch.rand(
-                series.shape[0], patches, device=series.device, generator=generator
-            )
-            < self.config.mask_ratio
+        count = int(patches * self.config.mask_ratio)
+        selected = torch.zeros(
+            series.shape[0], patches, device=series.device, dtype=torch.bool
         )
-        selected[:, 0] |= ~selected.any(1)
+        for batch_index in range(series.shape[0]):
+            indices = torch.randperm(
+                patches, device=series.device, generator=generator
+            )[:count]
+            selected[batch_index, indices] = True
         return selected.repeat_interleave(self.config.patch_length, dim=1)[
             :, : series.shape[1]
         ]

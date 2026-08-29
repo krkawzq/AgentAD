@@ -8,31 +8,45 @@ from agentad.methods import (  # noqa: E402
     METHODS,
     AERCA,
     AERCAConfig,
+    AERCALightningModule,
     AxonAD,
     AxonADConfig,
+    AxonADLightningModule,
     CARLA,
     CARLAConfig,
+    CARLAClassificationLightningModule,
+    CARLAPretextLightningModule,
     CrossAD,
     CrossADConfig,
+    CrossADLightningModule,
     DADA,
     DADAConfig,
+    DADALightningModule,
     KANAD,
     KANADConfig,
+    KANADLightningModule,
     Left,
     LeftConfig,
+    LeftLightningModule,
     MMPAD,
     MMPADConfig,
+    MMPADLightningModule,
     PaAno,
     PaAnoConfig,
+    PaAnoLightningModule,
     ScatterAD,
     ScatterADConfig,
+    ScatterADLightningModule,
     TimeRCD,
     TimeRCDConfig,
+    TimeRCDLightningModule,
     TSPulseConfig,
     TSPulseFineTune,
+    TSPulseLightningModule,
     TSPulseZeroShot,
     XLSTMAD,
     XLSTMADConfig,
+    XLSTMADLightningModule,
     inject_anomalies,
 )
 from agentad.methods._utils import (  # noqa: E402
@@ -63,6 +77,75 @@ def test_method_registry_exposes_detectors_but_not_agent_frameworks():
         "TSPulse-FT",
         "TSPulse-ZS",
         "xLSTMAD",
+    }
+
+
+def test_every_method_exposes_an_independent_lightning_module():
+    import lightning as L
+
+    modules = (
+        AERCALightningModule,
+        AxonADLightningModule,
+        CARLAPretextLightningModule,
+        CARLAClassificationLightningModule,
+        CrossADLightningModule,
+        DADALightningModule,
+        KANADLightningModule,
+        LeftLightningModule,
+        MMPADLightningModule,
+        PaAnoLightningModule,
+        ScatterADLightningModule,
+        TimeRCDLightningModule,
+        TSPulseLightningModule,
+        XLSTMADLightningModule,
+    )
+    assert all(issubclass(module, L.LightningModule) for module in modules)
+    assert len({module.__module__ for module in modules}) == 13
+
+
+def test_original_config_factories_cover_published_variants():
+    assert set(AERCAConfig.original_configs()) == {
+        "linear",
+        "lorenz96",
+        "lotka_volterra",
+        "msds",
+        "nonlinear",
+        "swat",
+    }
+    assert set(CARLAConfig.original_configs()) == {
+        "kpi",
+        "msl",
+        "smap",
+        "smd",
+        "swat",
+        "yahoo",
+    }
+    assert len(CrossADConfig.original_configs()) == 15
+    assert len(LeftConfig.original_configs()) == 7
+    assert len(MMPADConfig.original_configs(subsequence_length=16)) == 5
+    assert set(DADAConfig.original_configs()) == {"pretrained", "cli"}
+    assert set(KANADConfig.original_configs()) == {"default"}
+    assert set(ScatterADConfig.original_configs()) == {
+        "MSL",
+        "SWaT",
+        "PSM",
+        "WADI",
+        "NIPS_TS_Water",
+        "NIPS_TS_Swan",
+    }
+    assert set(TimeRCDConfig.original_configs(input_features=3)) == {
+        "pretraining",
+        "pretrained_univariate",
+        "pretrained_multivariate",
+    }
+    assert set(TSPulseConfig.original_configs(input_features=2)) == {
+        "default",
+        "tsb_zero_shot",
+        "tsb_finetune",
+    }
+    assert set(XLSTMADConfig.original_configs(input_features=2)) == {
+        "default",
+        "example",
     }
 
 
@@ -249,6 +332,7 @@ def test_tspulse_finetune_loss_and_zero_shot_score():
         context_length=16,
         patch_length=4,
         model_dim=8,
+        decoder_model_dim=8,
         layers=1,
         decoder_layers=1,
         expansion_factor=2,
@@ -256,6 +340,8 @@ def test_tspulse_finetune_loss_and_zero_shot_score():
         dropout=0,
         aggregation_length=8,
         smoothing_window=3,
+        mask_type="user",
+        forecast_length=1,
     )
     finetuned = TSPulseFineTune(config)
     windows = torch.randn(2, 16, 2)
@@ -269,8 +355,11 @@ def test_tspulse_finetune_loss_and_zero_shot_score():
     with pytest.raises(ValueError, match="hide at least one"):
         finetuned.compute_loss(windows, observed_mask=torch.ones_like(windows))
 
-    zero_shot = TSPulseZeroShot(config)
-    assert_finite_shape(zero_shot.score(torch.randn(1, 22, 2), batch_size=3), (1, 22))
+    with pytest.raises(ValueError, match="from_pretrained"):
+        TSPulseZeroShot(config)
+    assert_finite_shape(
+        finetuned.score(torch.randn(1, 22, 2), batch_size=3), (1, 22)
+    )
 
 
 def test_time_rcd_loss_score_and_checkpoint_conversion(tmp_path):
@@ -289,6 +378,7 @@ def test_time_rcd_loss_score_and_checkpoint_conversion(tmp_path):
     losses = model.compute_loss(
         series,
         labels=torch.zeros(2, 12),
+        masked_points=torch.arange(12)[None].expand(2, -1) < 4,
         generator=torch.Generator().manual_seed(2),
     )
     assert losses.total.ndim == 0 and torch.isfinite(losses.total)
@@ -319,12 +409,13 @@ def test_xlstmad_reconstruction_and_aligned_score():
         XLSTMADConfig(
             input_features=2,
             window_length=8,
-            embedding_dim=8,
+            embedding_dim=20,
             blocks=2,
             scalar_memory_blocks=(0,),
-            heads=2,
+            heads=4,
             scalar_kernel=3,
             matrix_kernel=3,
+            scalar_backend="vanilla",
         )
     )
     windows = torch.randn(3, 8, 2)

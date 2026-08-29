@@ -12,6 +12,117 @@ from .._utils import evaluation_mode, overlap_average, sliding_windows, validate
 from .config import CARLAConfig
 
 
+def inject_anomalies(
+    windows: Tensor,
+    *,
+    min_fraction: float = 0.1,
+    max_fraction: float = 0.9,
+    generator: torch.Generator | None = None,
+) -> Tensor:
+    """Inject one of CARLA's five anomaly families into every input window."""
+    windows = validate_series(windows, min_length=4, name="windows")
+    if not 0 < min_fraction <= max_fraction < 1:
+        raise ValueError("fractions must satisfy 0 < min <= max < 1")
+    result = windows.clone()
+    _, time, features = result.shape
+    minimum = max(1, round(time * min_fraction))
+    maximum = max(minimum + 1, round(time * max_fraction))
+
+    def randint(low: int, high: int) -> int:
+        return int(
+            torch.randint(
+                low,
+                high,
+                (),
+                device=result.device,
+                generator=generator,
+            )
+        )
+
+    def inject_family(
+        source: Tensor,
+        *,
+        start: int,
+        length: int,
+        compression: int | None = None,
+        scale: float = 1.0,
+        trend: bool = False,
+        trend_end: bool = False,
+        shapelet: bool = False,
+    ) -> Tensor:
+        output = source.clone()
+        stop = time if trend_end else min(start + length, time)
+        segment = output[start:stop]
+        compression = randint(2, 5) if compression is None else compression
+        segment = segment.repeat(compression, 1)[::compression][: stop - start]
+        segment = segment * scale
+        if trend:
+            magnitude = 1 + 0.5 * torch.randn(
+                (), device=result.device, dtype=result.dtype, generator=generator
+            )
+            direction = -1 if randint(0, 2) == 0 else 1
+            segment = segment + direction * magnitude
+        if shapelet:
+            segment = output[start] + 0.1 * torch.rand(
+                output[start].shape,
+                device=result.device,
+                dtype=result.dtype,
+                generator=generator,
+            )
+        output[start:stop] = segment
+        return output
+
+    for batch_index in range(result.shape[0]):
+        length = randint(minimum, min(maximum, time))
+        start = randint(0, time - length)
+        if features == 1:
+            affected = [0]
+        else:
+            low = max(1, int(features / 10))
+            high = max(low + 1, int(features / 2))
+            affected = [randint(0, features) for _ in range(randint(low, high))]
+        family = randint(0, 5)
+        for feature in affected:
+            source = windows[batch_index, :, feature : feature + 1]
+            if family == 0:
+                changed = inject_family(source, start=start, length=length)
+            elif family == 1:
+                changed = inject_family(
+                    source,
+                    start=start,
+                    length=length,
+                    compression=1,
+                    trend=True,
+                    trend_end=True,
+                )
+            elif family == 2:
+                changed = inject_family(
+                    source,
+                    start=start,
+                    length=3 if features == 1 else 2,
+                    compression=1,
+                    scale=8,
+                )
+            elif family == 3:
+                changed = inject_family(
+                    source,
+                    start=start,
+                    length=5 if features == 1 else 4,
+                    compression=1,
+                    scale=3,
+                )
+            else:
+                changed = inject_family(
+                    source,
+                    start=start,
+                    length=length,
+                    compression=1,
+                    shapelet=True,
+                )
+            result[batch_index, :, feature : feature + 1] = changed
+    return result
+
+
 class _SameConv1d(nn.Conv1d):
     def forward(self, x: Tensor) -> Tensor:
         kernel = self.weight.shape[-1]

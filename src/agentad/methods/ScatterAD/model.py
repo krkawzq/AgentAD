@@ -188,13 +188,6 @@ class ScatterAD(nn.Module):
             self.online_encoder.parameters(), self.target_encoder.parameters()
         ):
             target.mul_(momentum).add_(online, alpha=1 - momentum)
-        for online, target in zip(
-            self.online_encoder.buffers(), self.target_encoder.buffers()
-        ):
-            if target.is_floating_point():
-                target.mul_(momentum).add_(online, alpha=1 - momentum)
-            else:
-                target.copy_(online)
 
     @torch.inference_mode()
     def score(self, x: Tensor) -> Tensor:

@@ -154,11 +154,15 @@ class AxonAD(nn.Module):
             )
         start = self.config.forecast_steps
         available = self.config.window_length - start
-        block = max(1, round(available * self.config.mask_block_fraction))
-        blocks = max(1, math.ceil(available * self.config.mask_ratio / block))
+        tail_length = max(1, available // 2)
+        tail_start = max(start, self.config.window_length - tail_length)
+        tail_length = self.config.window_length - tail_start
+        block = max(1, round(tail_length * self.config.mask_block_fraction))
+        block = min(block, tail_length)
+        blocks = max(1, math.ceil(tail_length * self.config.mask_ratio / block))
         starts = torch.randint(
-            start,
-            max(start + 1, self.config.window_length - block + 1),
+            tail_start,
+            max(tail_start + 1, self.config.window_length - block + 1),
             (batch, blocks),
             device=device,
         )

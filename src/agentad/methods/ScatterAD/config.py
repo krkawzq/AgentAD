@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Self
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,6 +19,12 @@ class ScatterADConfig:
     projection_dropout: float = 0.3
     target_momentum: float = 0.5
     score_epsilon: float = 1e-6
+    window_length: int = 110
+    learning_rate: float = 1e-4
+    epochs: int = 2
+    batch_size: int = 128
+    anomaly_ratio: float = 1.0
+    random_seed: int = 2
 
     def __post_init__(self) -> None:
         positive = {
@@ -27,6 +34,9 @@ class ScatterADConfig:
             "heads": self.heads,
             "temporal_kernel": self.temporal_kernel,
             "graph_radius": self.graph_radius,
+            "window_length": self.window_length,
+            "epochs": self.epochs,
+            "batch_size": self.batch_size,
         }
         for name, value in positive.items():
             if value <= 0:
@@ -43,3 +53,44 @@ class ScatterADConfig:
             raise ValueError("target_momentum must be in [0, 1)")
         if self.score_epsilon <= 0:
             raise ValueError("score_epsilon must be positive")
+        if self.learning_rate <= 0 or not 0 <= self.anomaly_ratio <= 100:
+            raise ValueError("learning_rate must be positive and anomaly_ratio in [0,100]")
+
+    @classmethod
+    def _original(cls, input_features: int) -> Self:
+        return cls(input_features=input_features)
+
+    @classmethod
+    def original_msl(cls) -> Self:
+        return cls._original(55)
+
+    @classmethod
+    def original_swat(cls) -> Self:
+        return cls._original(51)
+
+    @classmethod
+    def original_psm(cls) -> Self:
+        return cls._original(26)
+
+    @classmethod
+    def original_wadi(cls) -> Self:
+        return cls._original(123)
+
+    @classmethod
+    def original_nips_water(cls) -> Self:
+        return cls._original(9)
+
+    @classmethod
+    def original_nips_swan(cls) -> Self:
+        return cls._original(38)
+
+    @classmethod
+    def original_configs(cls) -> dict[str, Self]:
+        return {
+            "MSL": cls.original_msl(),
+            "SWaT": cls.original_swat(),
+            "PSM": cls.original_psm(),
+            "WADI": cls.original_wadi(),
+            "NIPS_TS_Water": cls.original_nips_water(),
+            "NIPS_TS_Swan": cls.original_nips_swan(),
+        }

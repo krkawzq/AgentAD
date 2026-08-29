@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Self
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,6 +20,13 @@ class AxonADConfig:
     mask_ratio: float = 0.5
     mask_block_fraction: float = 0.5
     epsilon: float = 1e-9
+    batch_size: int = 128
+    epochs: int = 50
+    patience: int = 3
+    learning_rate: float = 1e-3
+    weight_decay: float = 1e-5
+    validation_fraction: float = 0.2
+    gradient_clip_val: float = 1.0
 
     def __post_init__(self) -> None:
         for name in (
@@ -27,6 +35,9 @@ class AxonADConfig:
             "model_dim",
             "heads",
             "tail_length",
+            "batch_size",
+            "epochs",
+            "patience",
         ):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
@@ -44,3 +55,32 @@ class AxonADConfig:
             raise ValueError("mask fractions must be in (0,1]")
         if self.epsilon <= 0:
             raise ValueError("epsilon must be positive")
+        if self.learning_rate <= 0 or self.weight_decay < 0:
+            raise ValueError("learning_rate must be positive and weight_decay non-negative")
+        if not 0 <= self.validation_fraction < 1:
+            raise ValueError("validation_fraction must be in [0, 1)")
+        if self.gradient_clip_val <= 0:
+            raise ValueError("gradient_clip_val must be positive")
+
+    @classmethod
+    def original_default(cls, *, input_features: int) -> Self:
+        return cls(input_features=input_features)
+
+    @classmethod
+    def original_optimal_multivariate(cls, *, input_features: int) -> Self:
+        return cls(
+            input_features=input_features,
+            model_dim=128,
+            heads=8,
+            tail_length=10,
+            learning_rate=5e-4,
+        )
+
+    @classmethod
+    def original_configs(cls, *, input_features: int) -> dict[str, Self]:
+        return {
+            "default": cls.original_default(input_features=input_features),
+            "optimal_multivariate": cls.original_optimal_multivariate(
+                input_features=input_features
+            ),
+        }
