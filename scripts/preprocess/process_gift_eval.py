@@ -35,6 +35,15 @@ else:
 
 
 SOURCE = "gift-eval"
+FREQUENCY_NAMES = {
+    "5T": "5min",
+    "10T": "10min",
+    "15T": "15min",
+    "H": "hourly",
+    "D": "daily",
+    "W": "weekly",
+    "M": "monthly",
+}
 
 
 def arrow_rows(path: Path) -> Iterator[dict[str, Any]]:
@@ -134,7 +143,10 @@ def gift_record(
 def dataset_name(input_root: Path, arrow_path: Path) -> tuple[str, str]:
     relative = arrow_path.parent.relative_to(input_root)
     source_name = relative.as_posix()
-    safe = safe_name(source_name.replace("/", "__"))
+    parts = list(relative.parts)
+    if len(parts) > 1 and parts[-1] in FREQUENCY_NAMES:
+        parts[-1] = FREQUENCY_NAMES[parts[-1]]
+    safe = safe_name("-".join(parts).replace("_", "-"))
     if not safe or safe in {".", ".."}:
         raise ValueError(f"invalid GIFT-Eval dataset path: {source_name!r}")
     return safe, source_name
@@ -165,6 +177,7 @@ def process_dataset(
     writer = DatasetWriter(
         source_dir / dataset,
         source=SOURCE,
+        collection="GIFT-Eval",
         dataset=dataset,
         task="forecasting",
         project_root=project_root,

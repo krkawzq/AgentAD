@@ -512,7 +512,11 @@ def _encode_timestamps(
             )
         return _offset_fallback(series, rows)
     if pd.api.types.is_datetime64_any_dtype(series.dtype):
-        packed = pd.to_datetime(series, utc=True).astype("int64").to_numpy()
+        try:
+            parsed = pd.to_datetime(series, utc=True).astype("datetime64[ns, UTC]")
+        except (TypeError, ValueError, OverflowError):
+            return _offset_fallback(series, rows)
+        packed = parsed.astype("int64").to_numpy()
         timezone = getattr(series.dt, "tz", None)
         return (
             packed,
@@ -577,6 +581,10 @@ def _encode_timestamps(
     except (TypeError, ValueError, OverflowError):
         parsed = None
     if parsed is not None and not parsed.isna().any():
+        try:
+            parsed = parsed.astype("datetime64[ns, UTC]")
+        except (TypeError, ValueError, OverflowError):
+            return _offset_fallback(series, rows)
         packed = parsed.astype("int64").to_numpy()
         source_format = _reversible_datetime_format(series, packed)
         if source_format is not None:
@@ -801,11 +809,7 @@ class DatasetWriter:
                 labels=labels,
                 label_columns=label_columns,
                 packed_timestamps=packed_timestamps,
-                original_timestamps=(
-                    original_timestamps
-                    if encoded_timestamp_kind == "offset" or labels is not None
-                    else None
-                ),
+                original_timestamps=original_timestamps,
                 encoded_timestamp_kind=encoded_timestamp_kind,
                 source_timestamp_kind=split.timestamp_kind,
                 timestamp_encoding=timestamp_encoding,
@@ -846,7 +850,6 @@ class DatasetWriter:
             str,
             bool,
             tuple[tuple[str, str], ...],
-            bool,
         ]
         groups: dict[str, dict[group_key, list[_SeriesEntry]]] = {}
         for entry in self._entries:
@@ -864,7 +867,6 @@ class DatasetWriter:
                                 strict=True,
                             )
                         ),
-                        buffer.encoded_timestamp_kind == "offset",
                     ),
                     [],
                 ).append(entry)
@@ -882,7 +884,6 @@ class DatasetWriter:
                             "dtype": key[1],
                             "has_labels": key[2],
                             "label_columns": list(key[3]),
-                            "offset_timestamps": key[4],
                         }
                     )
                 raise ValueError(

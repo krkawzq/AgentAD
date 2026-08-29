@@ -127,7 +127,7 @@ def _timestamps(values: pd.Series) -> tuple[np.ndarray, dict[str, str] | None]:
         # contract stores epoch nanoseconds.
         timestamps = (
             parsed.dt.as_unit("ns")
-            .astype("int64", copy=False)
+            .astype("int64")
             .to_numpy(dtype=np.int64, copy=False)
         )
     except (TypeError, ValueError, OverflowError) as error:

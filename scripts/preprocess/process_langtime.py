@@ -91,16 +91,6 @@ def process_standard_csvs(
         files = sorted(raw_dataset_dir.glob("*.csv"))
         if not files:
             raise FileNotFoundError(f"no CSV files under {raw_dataset_dir}")
-        dataset = raw_dataset_dir.name
-        dataset_dir = source_dir / dataset
-        num_series = 0
-        writer = DatasetWriter(
-            dataset_dir,
-            source=SOURCE,
-            dataset=dataset,
-            task="forecasting",
-            project_root=project_root,
-        )
         for path in files:
             frame = pd.read_csv(path)
             if frame.empty or frame.shape[1] < 2:
@@ -118,6 +108,21 @@ def process_standard_csvs(
                     raise ValueError(
                         f"target {target!r} from {config_name!r} absent from {path}"
                     )
+            collection = raw_dataset_dir.name if len(files) > 1 else None
+            dataset = path.stem if collection is not None else raw_dataset_dir.name
+            dataset_dir = (
+                source_dir / collection / dataset
+                if collection is not None
+                else source_dir / dataset
+            )
+            writer = DatasetWriter(
+                dataset_dir,
+                source=SOURCE,
+                collection=collection,
+                dataset=dataset,
+                task="forecasting",
+                project_root=project_root,
+            )
             writer.add_series(
                 series_id=path.stem,
                 splits={
@@ -135,9 +140,8 @@ def process_standard_csvs(
                     "recommended_split_ranges": split_ranges(path.stem, len(frame)),
                 },
             )
-            num_series += 1
-        writer.finalize()
-        print(f"{SOURCE}/{dataset}: {num_series} series")
+            writer.finalize()
+            print(f"{SOURCE}/{dataset}: 1 series")
     if seen_config_paths != set(configs):
         raise FileNotFoundError(
             f"LangTime config paths have no input CSV: "
@@ -180,47 +184,55 @@ def process_m4(
     test_values, test_offsets = pack_ragged(test_raw)
     del train_raw, test_raw
 
-    dataset = "M4"
-    dataset_dir = source_dir / dataset
-    writer = DatasetWriter(
-        dataset_dir,
-        source=SOURCE,
-        dataset=dataset,
-        task="forecasting",
-        project_root=project_root,
-    )
     id_column = "M4id"
     if id_column not in info.columns:
         raise ValueError(f"M4 metadata has no series id column: {info_path}")
     if info[id_column].isna().any() or info[id_column].astype(str).duplicated().any():
         raise ValueError(f"M4 metadata has empty or duplicate series ids: {info_path}")
-    for index in range(len(info)):
-        train = train_values[train_offsets[index] : train_offsets[index + 1]]
-        test = test_values[test_offsets[index] : test_offsets[index + 1]]
-        series_id = str(info.iloc[index][id_column])
-        writer.add_series(
-            series_id=series_id,
-            splits={
-                "train": SplitData(
-                    train.reshape(-1, 1), np.arange(len(train)), feature_names=["value"]
-                ),
-                "test": SplitData(
-                    test.reshape(-1, 1),
-                    np.arange(len(train), len(train) + len(test)),
-                    feature_names=["value"],
-                ),
-            },
-            source_metadata={"m4_info": jsonable(info.iloc[index].to_dict())},
+    if "SP" not in info.columns:
+        raise ValueError(f"M4 metadata has no seasonal-pattern column: {info_path}")
+    source_files = [
+        source_fingerprint(path, project_root)
+        for path in (info_path, train_path, test_path)
+    ]
+    for pattern in sorted(info["SP"].astype(str).unique()):
+        artifact = f"M4-{pattern}"
+        writer = DatasetWriter(
+            source_dir / "M4" / artifact,
+            source=SOURCE,
+            collection="M4",
+            dataset=artifact,
+            task="forecasting",
+            project_root=project_root,
         )
-    writer.finalize(
-        source_metadata={
-            "source_files": [
-                source_fingerprint(path, project_root)
-                for path in (info_path, train_path, test_path)
-            ],
-        }
-    )
-    print(f"{SOURCE}/{dataset}: {len(info)} series")
+        indices = np.flatnonzero(info["SP"].astype(str).to_numpy() == pattern)
+        for index in indices:
+            train = train_values[train_offsets[index] : train_offsets[index + 1]]
+            test = test_values[test_offsets[index] : test_offsets[index + 1]]
+            series_id = str(info.iloc[index][id_column])
+            writer.add_series(
+                series_id=series_id,
+                splits={
+                    "train": SplitData(
+                        train.reshape(-1, 1),
+                        np.arange(len(train)),
+                        feature_names=["value"],
+                    ),
+                    "test": SplitData(
+                        test.reshape(-1, 1),
+                        np.arange(len(train), len(train) + len(test)),
+                        feature_names=["value"],
+                    ),
+                },
+                source_metadata={"m4_info": jsonable(info.iloc[index].to_dict())},
+            )
+        writer.finalize(
+            source_metadata={
+                "seasonal_pattern": pattern,
+                "source_files": source_files,
+            }
+        )
+        print(f"{SOURCE}/M4/{artifact}: {len(indices)} series")
 
 
 def process_pems(

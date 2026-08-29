@@ -26,6 +26,24 @@ def series_id_for(dataset_dir: Path, array_dir: Path) -> str:
     return relative.as_posix()
 
 
+def semantic_dataset(collection: str, series_id: str) -> str:
+    if collection == "Yahoo":
+        if series_id.startswith("real_"):
+            return "Yahoo-S5-A1"
+        if series_id.startswith("synthetic_"):
+            return "Yahoo-S5-A2"
+        if series_id.startswith("A3Benchmark-"):
+            return "Yahoo-S5-A3"
+        if series_id.startswith("A4Benchmark-"):
+            return "Yahoo-S5-A4"
+        raise ValueError(f"unrecognized Yahoo S5 series: {series_id!r}")
+    if collection == "NAB":
+        if not series_id.startswith("Twitter_volume_"):
+            raise ValueError(f"unrecognized EasyTSAD NAB series: {series_id!r}")
+        return "NAB-realTweets"
+    return collection
+
+
 def load_source_info(path: Path) -> dict[str, object]:
     if not path.exists():
         return {}
@@ -67,15 +85,8 @@ def main() -> None:
                 )
                 if not array_dirs:
                     raise FileNotFoundError(f"no train.npy under {raw_dataset_dir}")
-                dataset_dir = source_dir / dataset
-                num_series = 0
-                writer = DatasetWriter(
-                    dataset_dir,
-                    source=SOURCE,
-                    dataset=dataset,
-                    task="anomaly_detection",
-                    project_root=project_root,
-                )
+                writers: dict[str, DatasetWriter] = {}
+                counts: dict[str, int] = {}
                 for array_dir in array_dirs:
                     missing = [
                         name for name in REQUIRED if not (array_dir / name).is_file()
@@ -110,8 +121,28 @@ def main() -> None:
                     if info_path.exists():
                         source_files.append(info_path)
                     feature_names = [f"feature_{i}" for i in range(feature_count)]
+                    series_id = series_id_for(raw_dataset_dir, array_dir)
+                    semantic = semantic_dataset(dataset, series_id)
+                    writer = writers.get(semantic)
+                    if writer is None:
+                        dataset_dir = (
+                            source_dir / dataset / semantic
+                            if semantic != dataset
+                            else source_dir / dataset
+                        )
+                        writer = DatasetWriter(
+                            dataset_dir,
+                            source=SOURCE,
+                            collection=dataset if semantic != dataset else None,
+                            dataset=semantic,
+                            task="anomaly_detection",
+                            project_root=project_root,
+                            data_dtype=np.float64 if dataset == "Yahoo" else None,
+                        )
+                        writers[semantic] = writer
+                        counts[semantic] = 0
                     writer.add_series(
-                        series_id=series_id_for(raw_dataset_dir, array_dir),
+                        series_id=series_id,
                         splits={
                             "train": SplitData(
                                 train, np.arange(train_rows), train_label, feature_names
@@ -135,9 +166,19 @@ def main() -> None:
                             },
                         },
                     )
-                    num_series += 1
-                writer.finalize(source_metadata={"family": family})
-                print(f"{SOURCE}/{dataset}: {num_series} series")
+                    counts[semantic] += 1
+                for semantic, writer in sorted(writers.items()):
+                    writer.finalize(
+                        source_metadata={
+                            "family": family,
+                            "collection": dataset,
+                            "semantic_dataset": semantic,
+                        }
+                    )
+                    print(
+                        f"{SOURCE}/{dataset}/{semantic}: "
+                        f"{counts[semantic]} series"
+                    )
 
 
 if __name__ == "__main__":

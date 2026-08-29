@@ -63,6 +63,24 @@ def load_partitions(list_dir: Path, key: str) -> dict[str, tuple[Path, set[str]]
     return result
 
 
+def artifact_name(
+    source_dataset: str, source_id: int, feature_names: list[str]
+) -> tuple[str, list[str]]:
+    """Choose a stable semantic artifact and its canonical feature order."""
+    if len(feature_names) == 1:
+        return source_dataset, feature_names
+    if source_dataset == "Exathlon":
+        return f"Exathlon-{source_id:02d}", feature_names
+    if source_dataset in {"LTDB", "MITDB"}:
+        canonical = sorted(feature_names)
+        return f"{source_dataset}-{'-'.join(canonical)}", canonical
+    if source_dataset == "GHL":
+        return "GHL", sorted(feature_names)
+    if source_dataset == "SWaT":
+        return f"SWaT-{source_id}", feature_names
+    return source_dataset, feature_names
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-dir", type=Path, default=Path("data/raw/TSB-AD"))
@@ -78,8 +96,8 @@ def main() -> None:
     list_dir = args.file_list_dir.resolve()
     with staged_source_directory(args.output_dir.resolve(), SOURCE) as source_dir:
         for key in [args.only] if args.only else ["U", "M"]:
-            dataset = f"TSB-AD-{key}"
-            raw_dir = input_root / dataset
+            collection = f"TSB-AD-{key}"
+            raw_dir = input_root / collection
             files = sorted(raw_dir.glob("*.csv"))
             if not files:
                 raise FileNotFoundError(f"no CSV files under {raw_dir}")
@@ -91,94 +109,143 @@ def main() -> None:
             unknown_names = sorted(all_partition_names - raw_names)
             if unknown_names:
                 print(
-                    f"{SOURCE}/{dataset}: {len(unknown_names)} file-list entries "
+                    f"{SOURCE}/{collection}: {len(unknown_names)} file-list entries "
                     "have no raw CSV"
                 )
             unlisted_names = sorted(raw_names - all_partition_names)
             if unlisted_names:
                 print(
-                    f"{SOURCE}/{dataset}: {len(unlisted_names)} raw CSV files "
+                    f"{SOURCE}/{collection}: {len(unlisted_names)} raw CSV files "
                     "are in no file list"
                 )
 
-            dataset_dir = source_dir / dataset
-            num_series = 0
-            writer = DatasetWriter(
-                dataset_dir,
-                source=SOURCE,
-                dataset=dataset,
-                task="anomaly_detection",
-                project_root=project_root,
-            )
-            first_anomaly_mismatches = []
+            files_by_source: dict[str, list[tuple[Path, dict[str, object]]]] = {}
             for path in files:
-                frame = pd.read_csv(path)
-                if frame.empty or frame.shape[1] < 2:
-                    raise ValueError(f"invalid TSB-AD CSV: {path}")
-                label_col = str(frame.columns[-1])
-                if label_col.lower() != "label":
-                    raise ValueError(f"last TSB-AD column is not Label: {path}")
-                feature_names = [str(column) for column in frame.columns[:-1]]
-                filename_meta = parse_filename(path)
-                train_len = int(filename_meta["train_length"])
-                if not 0 < train_len < len(frame):
-                    raise ValueError(f"invalid train length for {path.name}")
-                label_series = pd.to_numeric(frame.iloc[:, -1], errors="raise")
-                if label_series.isna().any() or not set(label_series.unique()) <= {
-                    0,
-                    1,
-                }:
-                    raise ValueError(f"TSB-AD labels must be binary in {path}")
-                labels = label_series.to_numpy(dtype=np.int8)
-                nonzero = np.flatnonzero(labels)
-                first_anomaly = int(filename_meta["first_anomaly"])
-                observed_first = None if len(nonzero) == 0 else int(nonzero[0])
-                first_anomaly_matches = observed_first == first_anomaly
-                if not first_anomaly_matches:
-                    first_anomaly_mismatches.append(path.name)
-                memberships = sorted(
-                    name
-                    for name, (_, names) in partitions.items()
-                    if path.name in names
-                )
-                writer.add_series(
-                    series_id=path.stem,
-                    splits={
-                        "train": SplitData(
-                            frame.iloc[:train_len, :-1],
-                            np.arange(train_len),
-                            labels[:train_len],
-                            feature_names,
-                        ),
-                        "test": SplitData(
-                            frame.iloc[train_len:, :-1],
-                            np.arange(train_len, len(frame)),
-                            labels[train_len:],
-                            feature_names,
-                        ),
-                    },
-                    source_files=[path, *[partitions[name][0] for name in memberships]],
-                    source_metadata={
-                        **filename_meta,
-                        "benchmark_partitions": memberships,
-                        "label_column": label_col,
-                        "observed_first_anomaly": observed_first,
-                        "filename_first_anomaly_matches": first_anomaly_matches,
-                    },
-                )
-                num_series += 1
-            writer.finalize(
-                source_metadata={
-                    "file_list_dir": str(list_dir),
-                    "first_anomaly_mismatches": first_anomaly_mismatches,
-                }
-            )
-            if first_anomaly_mismatches:
-                print(
-                    f"{SOURCE}/{dataset}: filename first-anomaly metadata disagrees "
-                    f"with labels for {len(first_anomaly_mismatches)} series"
-                )
-            print(f"{SOURCE}/{dataset}: {num_series} series")
+                metadata = parse_filename(path)
+                source_dataset = str(metadata["source_dataset"])
+                files_by_source.setdefault(source_dataset, []).append((path, metadata))
+
+            for source_dataset, grouped_files in sorted(files_by_source.items()):
+                writers: dict[str, DatasetWriter] = {}
+                counts: dict[str, int] = {}
+                mismatches: dict[str, list[str]] = {}
+                for path, filename_meta in grouped_files:
+                    frame = pd.read_csv(path)
+                    if frame.empty or frame.shape[1] < 2:
+                        raise ValueError(f"invalid TSB-AD CSV: {path}")
+                    label_col = str(frame.columns[-1])
+                    if label_col.lower() != "label":
+                        raise ValueError(f"last TSB-AD column is not Label: {path}")
+                    source_feature_names = [
+                        str(column) for column in frame.columns[:-1]
+                    ]
+                    artifact, canonical_features = artifact_name(
+                        source_dataset,
+                        int(filename_meta["source_id"]),
+                        source_feature_names,
+                    )
+                    if set(canonical_features) != set(source_feature_names):
+                        raise AssertionError("canonical feature set changed")
+                    values = frame.loc[:, canonical_features]
+                    writer = writers.get(artifact)
+                    if writer is None:
+                        writer = DatasetWriter(
+                            source_dir / collection / source_dataset,
+                            source=SOURCE,
+                            collection=collection,
+                            dataset=source_dataset,
+                            artifact_name=artifact,
+                            task="anomaly_detection",
+                            project_root=project_root,
+                            data_dtype=np.float64,
+                        )
+                        writers[artifact] = writer
+                        counts[artifact] = 0
+                        mismatches[artifact] = []
+
+                    train_len = int(filename_meta["train_length"])
+                    if not 0 < train_len < len(frame):
+                        raise ValueError(f"invalid train length for {path.name}")
+                    label_series = pd.to_numeric(frame.iloc[:, -1], errors="raise")
+                    if label_series.isna().any() or not set(label_series.unique()) <= {
+                        0,
+                        1,
+                    }:
+                        raise ValueError(f"TSB-AD labels must be binary in {path}")
+                    labels = label_series.to_numpy(dtype=np.int8)
+                    nonzero = np.flatnonzero(labels)
+                    first_anomaly = int(filename_meta["first_anomaly"])
+                    observed_first = None if len(nonzero) == 0 else int(nonzero[0])
+                    first_anomaly_matches = observed_first == first_anomaly
+                    if not first_anomaly_matches:
+                        mismatches[artifact].append(path.name)
+                    memberships = sorted(
+                        name
+                        for name, (_, names) in partitions.items()
+                        if path.name in names
+                    )
+                    writer.add_series(
+                        series_id=path.stem,
+                        splits={
+                            "train": SplitData(
+                                values.iloc[:train_len],
+                                np.arange(train_len),
+                                labels[:train_len],
+                                canonical_features,
+                            ),
+                            "test": SplitData(
+                                values.iloc[train_len:],
+                                np.arange(train_len, len(frame)),
+                                labels[train_len:],
+                                canonical_features,
+                            ),
+                        },
+                        source_files=[
+                            path,
+                            *[partitions[name][0] for name in memberships],
+                        ],
+                        source_metadata={
+                            **filename_meta,
+                            "collection": collection,
+                            "artifact": artifact,
+                            "benchmark_partitions": memberships,
+                            "label_column": label_col,
+                            "source_feature_names": source_feature_names,
+                            "source_feature_dtypes": {
+                                str(column): str(frame[column].dtype)
+                                for column in frame.columns[:-1]
+                            },
+                            "canonical_feature_names": canonical_features,
+                            "feature_order_changed": (
+                                source_feature_names != canonical_features
+                            ),
+                            "observed_first_anomaly": observed_first,
+                            "filename_first_anomaly_matches": first_anomaly_matches,
+                        },
+                    )
+                    counts[artifact] += 1
+
+                for artifact, writer in sorted(writers.items()):
+                    writer.finalize(
+                        source_metadata={
+                            "collection": collection,
+                            "source_dataset": source_dataset,
+                            "file_list_dir": str(list_dir),
+                            "missing_raw_file_list_entries": unknown_names,
+                            "raw_files_without_partition": unlisted_names,
+                            "first_anomaly_mismatches": mismatches[artifact],
+                        }
+                    )
+                    if mismatches[artifact]:
+                        print(
+                            f"{SOURCE}/{collection}/{source_dataset}/{artifact}: "
+                            "filename first-anomaly metadata disagrees with labels "
+                            f"for {len(mismatches[artifact])} series"
+                        )
+                    print(
+                        f"{SOURCE}/{collection}/{source_dataset}/{artifact}: "
+                        f"{counts[artifact]} series"
+                    )
 
 
 if __name__ == "__main__":

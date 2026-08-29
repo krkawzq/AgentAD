@@ -113,6 +113,7 @@ def main() -> None:
                 dataset=ds_dir.name,
                 task="anomaly_detection",
                 project_root=project_root,
+                data_dtype=np.float64,
             )
             for path in files:
                 frame = pd.read_csv(path)

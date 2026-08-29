@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import filecmp
+import re
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -28,6 +29,38 @@ else:
 
 
 SOURCE = "dcdetector"
+
+
+def semantic_dataset(collection: str, series_id: str) -> str:
+    if collection == "YAHOO":
+        if series_id.startswith("Yahoo_A1real_"):
+            return "Yahoo-S5-A1"
+        if series_id.startswith("Yahoo_A2synthetic_"):
+            return "Yahoo-S5-A2"
+        if series_id.startswith("YahooA3Benchmark-"):
+            return "Yahoo-S5-A3"
+        if series_id.startswith("YahooA4Benchmark-"):
+            return "Yahoo-S5-A4"
+        raise ValueError(f"unrecognized Yahoo S5 series: {series_id!r}")
+    if collection == "NAB":
+        prefixes = {
+            "NAB_data_CloudWatch_": "NAB-realAWSCloudwatch",
+            "NAB_data_Exchange_": "NAB-realAdExchange",
+            "NAB_data_KnownCause_": "NAB-realKnownCause",
+            "NAB_data_Traffic_": "NAB-realTraffic",
+            "NAB_data_art": "NAB-artificialWithAnomaly",
+            "NAB_data_tweets_": "NAB-realTweets",
+        }
+        for prefix, dataset in prefixes.items():
+            if series_id.startswith(prefix):
+                return dataset
+        raise ValueError(f"unrecognized NAB series: {series_id!r}")
+    if collection == "ECG":
+        match = re.fullmatch(r"MBA_ECG(\d+)_data(?:_\d+)?", series_id)
+        if match is None:
+            raise ValueError(f"unrecognized ECG series: {series_id!r}")
+        return f"ECG-{match.group(1)}"
+    return collection
 
 
 def series_key_and_role(path: Path) -> tuple[str, str | None]:
@@ -107,17 +140,28 @@ def main() -> None:
                 key, role = series_key_and_role(path)
                 grouped[key][role].append(path)
 
-            dataset = raw_dataset_dir.name
-            dataset_dir = source_dir / dataset
-            num_series = 0
-            writer = DatasetWriter(
-                dataset_dir,
-                source=SOURCE,
-                dataset=dataset,
-                task="anomaly_detection",
-                project_root=project_root,
-            )
+            collection = raw_dataset_dir.name
+            writers: dict[str, DatasetWriter] = {}
+            counts: dict[str, int] = defaultdict(int)
             for series_id, role_paths in sorted(grouped.items()):
+                dataset = semantic_dataset(collection, series_id)
+                writer = writers.get(dataset)
+                if writer is None:
+                    dataset_dir = (
+                        source_dir / collection / dataset
+                        if dataset != collection
+                        else source_dir / dataset
+                    )
+                    writer = DatasetWriter(
+                        dataset_dir,
+                        source=SOURCE,
+                        collection=collection if dataset != collection else None,
+                        dataset=dataset,
+                        task="anomaly_detection",
+                        project_root=project_root,
+                        data_dtype=np.float64,
+                    )
+                    writers[dataset] = writer
                 selected: dict[str | None, Path] = {}
                 source_files: list[Path] = []
                 for role, candidates in role_paths.items():
@@ -200,9 +244,15 @@ def main() -> None:
                     source_metadata=source_metadata,
                     annotations=annotations,
                 )
-                num_series += 1
-            writer.finalize()
-            print(f"{SOURCE}/{dataset}: {num_series} series")
+                counts[dataset] += 1
+            for dataset, writer in sorted(writers.items()):
+                writer.finalize(
+                    source_metadata={
+                        "collection": collection,
+                        "semantic_dataset": dataset,
+                    }
+                )
+                print(f"{SOURCE}/{collection}/{dataset}: {counts[dataset]} series")
 
 
 if __name__ == "__main__":

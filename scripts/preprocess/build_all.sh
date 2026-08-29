@@ -36,33 +36,39 @@ case "$output" in
     *) echo "output directory must be a child of the project root: $output" >&2; exit 2 ;;
 esac
 
-processors=(
-    process_crossad.py
-    process_dada.py
-    process_dcdetector.py
-    process_easytsad.py
-    process_langtime.py
-    process_tsbad.py
-)
-
-# Newly audited sources are optional because WADI is access-controlled and the
-# other corpora are downloaded separately. Once their raw marker exists they
-# participate in the same staged build automatically.
-optional_processors=(
-    "process_aerca.py:data/raw/AERCA"
-    "process_wadi.py:data/raw/WADI"
-    "process_granite_tsfm.py:data/raw/GraniteTSFM/ZafNoo.csv"
+processor_specs=(
+    "process_aerca.py:data/raw/AERCA/msds"
+    "process_crossad.py:data/raw/CrossAD/dataset"
+    "process_dada.py:data/raw/DADA"
+    "process_dcdetector.py:data/raw/DCDetector/benchmark"
+    "process_easytsad.py:data/raw/EasyTSAD"
     "process_gift_eval.py:data/raw/GiftEval"
+    "process_granite_tsfm.py:data/raw/GraniteTSFM/ZafNoo.csv"
+    "process_langtime.py:data/raw/LangTime/dataset"
+    "process_sintel_orion.py:data/raw/Sintel-Orion/anomalies.csv"
+    "process_tsbad.py:data/raw/TSB-AD"
+    "process_wadi.py:data/raw/WADI"
 )
-for spec in "${optional_processors[@]}"; do
+processors=()
+missing_sources=()
+for spec in "${processor_specs[@]}"; do
     script="${spec%%:*}"
     marker="${spec#*:}"
     if [[ -e "$marker" ]]; then
         processors+=("$script")
     else
-        echo "skip optional source for $script (missing $marker)"
+        missing_sources+=("$script:$marker")
+        echo "skip unavailable source for $script (missing $marker)"
     fi
 done
+if [[ ${#processors[@]} -eq 0 ]]; then
+    echo "no raw dataset source is available" >&2
+    exit 1
+fi
+printf 'prepare processors: %s\n' "${processors[*]}"
+if [[ ${#missing_sources[@]} -gt 0 ]]; then
+    printf 'unavailable sources: %s\n' "${missing_sources[*]}"
+fi
 
 timestamp="$(date +%Y%m%d-%H%M%S)"
 output_parent="$(dirname "$output")"
@@ -75,6 +81,7 @@ echo "logs=$log_dir"
 
 fingerprint() {
     sha256sum pyproject.toml uv.lock scripts/preprocess/common.py \
+        scripts/preprocess/validate_processed.py \
         scripts/preprocess/process_*.py src/agentad/series/*.py
 }
 fingerprint > "$log_dir/build-inputs.sha256"
@@ -109,6 +116,14 @@ if [[ "$failed" -ne 0 ]]; then
     echo "build failed; staging retained at $staging" >&2
     exit 1
 fi
+
+validation_log="$log_dir/validation.json"
+if ! uv run --frozen --offline python scripts/preprocess/validate_processed.py \
+    "$staging" > "$validation_log"; then
+    echo "validation failed; staging retained at $staging" >&2
+    exit 1
+fi
+cat "$validation_log"
 
 if ! fingerprint | cmp -s - "$log_dir/build-inputs.sha256"; then
     fingerprint > "$log_dir/build-inputs-after.sha256"

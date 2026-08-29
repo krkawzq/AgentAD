@@ -6,8 +6,6 @@ Parts are adapted from TheDatumOrg/TSB-AD under Apache-2.0; see
 
 from __future__ import annotations
 
-import math
-
 import numpy as np
 from numba import njit
 from numpy.typing import ArrayLike, NDArray

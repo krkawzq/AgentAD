@@ -230,10 +230,9 @@ class TestLabels:
         assert sdata.materialize() is sdata
 
     def test_cached_clean_item_refreshes_with_copy_on_write(self, sdata):
-        with pd.option_context("mode.copy_on_write", True):
-            item = sdata["s1"]
-            sdata.labels.iloc[5, 0] = 42
-            assert item.labels.iloc[0, 0] == 42
+        item = sdata["s1"]
+        sdata.labels.iloc[5, 0] = 42
+        assert item.labels.iloc[0, 0] == 42
 
     def test_dirty_item_returns_assigned_frame(self, sdata):
         item = sdata["s1"]
@@ -346,10 +345,9 @@ class TestMaterialize:
         assert snapshot.materialize() is snapshot
 
     def test_in_place_mutation_detected_by_fingerprint(self, sdata):
-        with pd.option_context("mode.copy_on_write", True):
-            item = sdata["s1"]
-            item.labels.iloc[0, 0] = 5
-            snapshot = sdata.materialize()
+        item = sdata["s1"]
+        item.labels.iloc[0, 0] = 5
+        snapshot = sdata.materialize()
         assert snapshot.labels["is_anomaly"].tolist() == ([0] * 5 + [5, 0, 0] + [0] * 7)
         assert sdata.labels["is_anomaly"].tolist() == [0] * 15
 
@@ -364,10 +362,9 @@ class TestMaterialize:
             ids=["s"],
         )
 
-        with pd.option_context("mode.copy_on_write", True):
-            item = sdata["s"]
-            item.labels.iloc[0, 0] = "a"
-            snapshot = sdata.materialize()
+        item = sdata["s"]
+        item.labels.iloc[0, 0] = "a"
+        snapshot = sdata.materialize()
 
         assert snapshot is not sdata
         assert snapshot.labels.iloc[0, 0] == "a"
