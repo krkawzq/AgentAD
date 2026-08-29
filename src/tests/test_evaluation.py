@@ -13,6 +13,7 @@ from agentad.evaluation import (
     evaluate_collection,
     event_prf,
     find_period,
+    fixed_vus_prf,
     generate_curve,
     point_adjust,
     point_adjusted_prf,
@@ -63,6 +64,60 @@ def test_point_adjust_fills_whole_event_including_series_start():
 def test_event_and_affiliation_boundary_semantics():
     assert event_prf([0, 1, 1], [0, 0, 1]).f1 == 1.0
     assert affiliation_prf([0, 1, 1], [0, 0, 0]).f1 == 0.0
+
+
+def test_event_metrics_count_trailing_event_to_last_index():
+    # An event that runs to the final index is hit by a prediction anywhere
+    # inside it, including at the very last point; checked through both the
+    # fixed-decision and the oracle path used by get_metrics.
+    labels = np.array([0, 0, 0, 0, 1, 1], dtype=np.uint8)
+    scores = np.array([0.0, 0.1, 0.2, 0.3, 0.4, 1.0])
+    prediction = np.array([0, 0, 0, 0, 0, 1], dtype=np.uint8)
+
+    fixed = evaluate(
+        labels,
+        scores,
+        y_pred=prediction,
+        metrics=("Event-based-Recall", "Event-based-F1"),
+    )
+    assert fixed["Event-based-Recall"] == 1.0
+    assert fixed["Event-based-F1"] == 1.0
+
+    oracle = evaluate(labels, scores, metrics=("Event-based-F1",))
+    assert oracle["Event-based-F1"] == 1.0
+
+
+def test_point_adjusted_f1_for_segment_starting_at_index_zero():
+    # A hit anywhere inside a segment that starts at index 0 adjusts the
+    # whole segment, so only the stray false positive counts as an error.
+    labels = np.array([1, 1, 1, 0, 0, 0, 0, 0], dtype=np.uint8)
+    scores = np.arange(8, dtype=float)
+    prediction = np.array([0, 0, 1, 0, 0, 1, 0, 0], dtype=np.uint8)
+
+    result = evaluate(
+        labels,
+        scores,
+        y_pred=prediction,
+        metrics=("PA-Precision", "PA-Recall", "PA-F1"),
+    )
+
+    assert result["PA-Precision"] == pytest.approx(3 / 4)
+    assert result["PA-Recall"] == 1.0
+    assert result["PA-F1"] == pytest.approx(6 / 7)
+
+
+def test_fixed_vus_with_zero_window_equals_point_metrics():
+    # A zero buffer window leaves the labels unchanged, so fixed-prediction
+    # VUS degenerates to plain point precision, recall and F1.
+    labels = np.array([0, 1, 1, 0, 1, 0, 0, 1], dtype=np.uint8)
+    prediction = np.array([0, 1, 0, 0, 1, 1, 0, 0], dtype=np.uint8)
+
+    prf = fixed_vus_prf(labels, prediction, window_size=0)
+    expected = point_metrics(labels, prediction)
+
+    assert prf.precision == pytest.approx(expected.precision)
+    assert prf.recall == pytest.approx(expected.recall)
+    assert prf.f1 == pytest.approx(expected.f1)
 
 
 def test_metric_selection_and_undefined_classes(binary_case):

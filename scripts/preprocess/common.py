@@ -1,12 +1,11 @@
 """Shared preprocessing primitives that pack every source into SeriesData.
 
-Each dataset becomes one :class:`SeriesData` package per (split, feature
-schema) group: ``data`` keeps the dense values, ``labels`` carries the
-point-wise label column, and per-series provenance lives in the package
-metadata. Source timestamps use int64 only when their original values are
-reconstructible from an explicit encoding descriptor; other series keep 0-based
-offsets and store the original timestamps as a ``timestamp`` column of the labels
-frame.
+Each writer represents one explicitly named dataset artifact. ``data`` keeps
+the dense values, ``labels`` carries point-wise annotations, and per-series
+provenance lives in the package metadata. Source timestamps use int64 only when
+their original values are reconstructible from an explicit encoding descriptor;
+other series keep 0-based offsets and store the original timestamps as a
+``timestamp`` column of the labels frame.
 """
 
 from __future__ import annotations
@@ -24,7 +23,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Iterator, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Iterator, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -655,6 +654,7 @@ def split_interval_annotations(
 @dataclass(slots=True)
 class _SplitBuffer:
     matrix: np.ndarray
+    source_data_dtype: str
     names: list[str]
     labels: np.ndarray | None
     label_columns: pd.DataFrame
@@ -675,12 +675,13 @@ class _SeriesEntry:
 
 
 class DatasetWriter:
-    """Buffers per-series splits and packs each (split, feature-schema) group
-    into one SeriesData package when finalized.
+    """Pack one semantically named dataset artifact per available split.
 
     Series whose timestamps cannot be packed to int64 use 0-based offsets and
     contribute their original timestamps to a shared ``timestamp`` column of
-    the labels frame, so every package stays internally consistent.
+    the labels frame. Feature and label schemas must be consistent inside one
+    artifact; processors must create separately named writers for real
+    subdatasets instead of relying on opaque schema-numbered files.
     """
 
     def __init__(
@@ -689,11 +690,19 @@ class DatasetWriter:
         *,
         source: str,
         dataset: str,
+        artifact_name: str | None = None,
+        collection: str | None = None,
         task: str,
         project_root: Path,
+        data_dtype: str | np.dtype[Any] | None = None,
     ) -> None:
+        artifact_name = dataset if artifact_name is None else artifact_name
         if safe_name(source) != source or safe_name(dataset) != dataset:
             raise ValueError(f"unsafe source/dataset identity: {source!r}/{dataset!r}")
+        if safe_name(artifact_name) != artifact_name:
+            raise ValueError(f"unsafe artifact identity: {artifact_name!r}")
+        if collection is not None and safe_name(collection) != collection:
+            raise ValueError(f"unsafe collection identity: {collection!r}")
         if Path(dataset_dir).name != dataset:
             raise ValueError(
                 f"dataset directory name {Path(dataset_dir).name!r} != {dataset!r}"
@@ -703,8 +712,16 @@ class DatasetWriter:
         self._dataset_dir = Path(dataset_dir)
         self._source = source
         self._dataset = dataset
+        self._artifact_name = artifact_name
+        self._collection = collection
         self._task = task
         self._project_root = Path(project_root)
+        self._data_dtype = None if data_dtype is None else np.dtype(data_dtype)
+        if self._data_dtype is not None and not (
+            np.issubdtype(self._data_dtype, np.number)
+            or np.issubdtype(self._data_dtype, np.bool_)
+        ):
+            raise TypeError(f"data_dtype must be numeric or boolean: {self._data_dtype}")
         self._entries: list[_SeriesEntry] = []
         self._series_ids: set[str] = set()
 
@@ -741,6 +758,22 @@ class DatasetWriter:
                     f"timestamp_kind for split {split_name!r} must be non-empty"
                 )
             matrix, names = _feature_matrix(split.values, split.feature_names)
+            source_data_dtype = str(matrix.dtype)
+            if self._data_dtype is not None and matrix.dtype != self._data_dtype:
+                converted = matrix.astype(self._data_dtype)
+                try:
+                    restored = converted.astype(matrix.dtype)
+                except (TypeError, ValueError, OverflowError) as error:
+                    raise ValueError(
+                        f"cannot losslessly convert {series_id!r}/{split_name} "
+                        f"from {matrix.dtype} to {self._data_dtype}"
+                    ) from error
+                if not np.array_equal(matrix, restored, equal_nan=True):
+                    raise ValueError(
+                        f"conversion of {series_id!r}/{split_name} from "
+                        f"{matrix.dtype} to {self._data_dtype} is lossy"
+                    )
+                matrix = converted
             if canonical is None:
                 canonical = names
             elif names != canonical:
@@ -763,6 +796,7 @@ class DatasetWriter:
             ) = _encode_timestamps(split.timestamps, len(matrix))
             buffers[split_name] = _SplitBuffer(
                 matrix=matrix,
+                source_data_dtype=source_data_dtype,
                 names=names,
                 labels=labels,
                 label_columns=label_columns,
@@ -796,7 +830,7 @@ class DatasetWriter:
     def finalize(
         self, *, source_metadata: Mapping[str, Any] | None = None
     ) -> dict[str, Any]:
-        """Pack every buffered (split, feature-schema) group into one package.
+        """Pack every buffered split into one explicitly named package.
 
         Dataset-level ``source_metadata`` rides in each package manifest;
         everything else about the dataset is derivable from the packages
@@ -835,20 +869,47 @@ class DatasetWriter:
                     [],
                 ).append(entry)
 
+        package_paths = []
         for split_name in sorted(groups):
             schema_groups = groups[split_name]
-            ordered = sorted(schema_groups)
-            for schema_index, key in enumerate(ordered):
-                names = key[0]
-                suffix = "" if len(ordered) == 1 else f"__schema{schema_index}"
+            if len(schema_groups) != 1:
+                summaries = []
+                for key, entries in sorted(schema_groups.items()):
+                    summaries.append(
+                        {
+                            "series": [entry.series_id for entry in entries[:5]],
+                            "features": list(key[0]),
+                            "dtype": key[1],
+                            "has_labels": key[2],
+                            "label_columns": list(key[3]),
+                            "offset_timestamps": key[4],
+                        }
+                    )
+                raise ValueError(
+                    f"artifact {self._artifact_name!r} split {split_name!r} has "
+                    f"{len(schema_groups)} incompatible schemas; create explicitly "
+                    f"named DatasetWriter instances for semantic subdatasets: "
+                    f"{summaries}"
+                )
+            key, entries = next(iter(schema_groups.items()))
+            package_name = (
+                self._artifact_name
+                if split_name == "data"
+                else f"{self._artifact_name}.{split_name}"
+            )
+            package_paths.append(
                 self._pack_group(
                     split_name,
-                    f"{split_name}{suffix}",
-                    list(names),
-                    schema_groups[key],
+                    package_name,
+                    list(key[0]),
+                    entries,
                     dataset_source_metadata,
                 )
-        return {"num_series": len(self._entries)}
+            )
+        return {
+            "num_series": len(self._entries),
+            "packages": [path.name for path in package_paths],
+        }
 
     def _pack_group(
         self,
@@ -857,7 +918,7 @@ class DatasetWriter:
         names: list[str],
         entries: list[_SeriesEntry],
         dataset_source_metadata: dict[str, Any],
-    ) -> None:
+    ) -> Path:
         prepared = [(entry, entry.splits[split_name]) for entry in entries]
         kinds = sorted({buffer.encoded_timestamp_kind for _, buffer in prepared})
         # Original timestamps stay recoverable whenever any series in the
@@ -891,11 +952,19 @@ class DatasetWriter:
                     frame,
                     meta={
                         "source": self._source,
+                        **(
+                            {"collection": self._collection}
+                            if self._collection is not None
+                            else {}
+                        ),
                         "dataset": self._dataset,
+                        "artifact": self._artifact_name,
                         "series_id": entry.series_id,
                         "task": self._task,
                         "split": split_name,
                         "rows": int(len(buffer.packed_timestamps)),
+                        "source_data_dtype": buffer.source_data_dtype,
+                        "data_dtype": str(buffer.matrix.dtype),
                         "timestamp_kind": buffer.encoded_timestamp_kind,
                         "source_timestamp_kind": buffer.source_timestamp_kind,
                         "timestamp_encoding": buffer.timestamp_encoding,
@@ -922,7 +991,13 @@ class DatasetWriter:
         )
         manifest = {
             "source": self._source,
+            **(
+                {"collection": self._collection}
+                if self._collection is not None
+                else {}
+            ),
             "dataset": self._dataset,
+            "artifact": self._artifact_name,
             "task": self._task,
             "split": split_name,
         }
@@ -930,4 +1005,7 @@ class DatasetWriter:
             manifest["source_metadata"] = dataset_source_metadata
         sdata = SeriesData.from_items(items, features=features, manifest=manifest)
         target = self._dataset_dir / f"{safe_name(package_name)}.zarr.zip"
+        if target.exists():
+            raise FileExistsError(f"artifact package already exists: {target}")
         _write_package(sdata, target)
+        return target

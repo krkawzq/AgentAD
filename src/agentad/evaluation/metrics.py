@@ -2,6 +2,20 @@
 
 Parts are adapted from TheDatumOrg/TSB-AD under Apache-2.0; see
 ``THIRD_PARTY_NOTICES.md``.
+
+Where the TSB-AD reference implementation deviates from the mathematical
+definition of a metric, this module implements the definition:
+
+- Point adjustment fills the entire labelled segment on any hit, including
+  a segment that starts at index 0.
+- A labelled event that reaches the last index of the series counts up to
+  and including that index.
+- Fixed-prediction VUS extends the original labels independently at every
+  buffer window.
+
+On inputs that avoid these situations ``get_metrics`` matches the TSB-AD
+reference to floating-point precision; ``src/tests/test_evaluation_parity.py``
+asserts that agreement.
 """
 
 from __future__ import annotations
@@ -487,13 +501,14 @@ def _evaluate_prepared(
         else:
             assert oracle_prfs is not None
             pa_precision, pa_recall, pa_f1 = oracle_prfs[:3]
-            if "PA-Accuracy" in selected:
+        if "PA-Accuracy" in selected:
+            if predictions is None:
                 assert thresholds is not None
                 pa_counts = _best_point_adjusted_counts(
                     labels, scores, thresholds
                 )
                 pa_metrics = _point_metrics_from_counts(*pa_counts)
-        computed["PA-Accuracy"] = pa_metrics.accuracy if "pa_metrics" in locals() else math.nan
+            computed["PA-Accuracy"] = pa_metrics.accuracy
         computed["PA-Precision"] = float(pa_precision)
         computed["PA-Recall"] = float(pa_recall)
         computed["PA-F1"] = float(pa_f1)
@@ -667,7 +682,8 @@ def get_metrics(
     ``labels`` is an equal-length binary vector. Optional ``pred`` is an
     equal-length binary decision. ``slidingWindow`` is a non-negative point
     count and ``thre`` is an integer of at least two. Only ``version="opt"`` is
-    supported; inputs otherwise follow :func:`evaluate`.
+    supported; inputs otherwise follow :func:`evaluate`. Metric semantics follow
+    the module-level deviation notes where the TSB-AD reference is defective.
     """
     if version != "opt":
         raise NotImplementedError("only version='opt' is supported")

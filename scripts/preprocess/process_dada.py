@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,37 @@ else:
 
 
 SOURCE = "dada"
+
+MONASH_FAMILIES = {
+    "australian_electricity_demand_dataset": "Australian-Electricity-Demand",
+    "bitcoin_dataset_without_missing_values": "Bitcoin",
+    "kdd_cup_2018_dataset_without_missing_values": "KDD-Cup-2018",
+    "london_smart_meters_dataset_without_missing_values": "London-Smart-Meters",
+    "saugeenday_dataset": "Saugeen-Day",
+    "solar_10_minutes_dataset": "Solar-10min",
+    "solar_4_seconds_dataset": "Solar-4sec",
+    "sunspot_dataset_without_missing_values": "Sunspot",
+    "us_births_dataset": "US-Births",
+    "weather_dataset": "Weather",
+    "wind_4_seconds_dataset": "Wind-4sec",
+    "wind_farms_minutely_dataset_without_missing_values": "Wind-Farms-Minutely",
+}
+
+
+def monash_identity(path: Path) -> tuple[str, int | None]:
+    stem = path.stem
+    match = re.fullmatch(r"(.+?)(?:_downsample_(\d+))?", stem)
+    if match is None:
+        raise ValueError(f"invalid Monash series name: {path.name}")
+    source_id = match.group(1)
+    family_match = re.fullmatch(r"(.+)\(\d+\)", source_id)
+    family_key = family_match.group(1) if family_match is not None else source_id
+    try:
+        family = MONASH_FAMILIES[family_key]
+    except KeyError as error:
+        raise ValueError(f"unknown Monash family in {path.name}") from error
+    factor = None if match.group(2) is None else int(match.group(2))
+    return family, factor
 
 
 def _slice(split: SplitData, start: int, end: int) -> SplitData:
@@ -144,45 +176,57 @@ def process_monash(
     if len(stems) != len(set(stems)):
         raise ValueError("Monash contains duplicate series identifiers")
 
-    dataset = "Monash"
-    dataset_dir = source_dir / dataset
-    num_series = 0
-    writer = DatasetWriter(
-        dataset_dir,
-        source=SOURCE,
-        dataset=dataset,
-        task="pretraining",
-        project_root=project_root,
-    )
-    for index, path in enumerate(files, start=1):
-        frame = pd.read_csv(path)
-        if frame.empty or frame.shape[1] < 2:
-            raise ValueError(f"invalid Monash series: {path}")
-        timestamp_col = str(frame.columns[0])
-        source_feature_names = [str(column) for column in frame.columns[1:]]
-        if len(source_feature_names) != 1:
-            raise ValueError(f"Monash series is not univariate: {path}")
-        writer.add_series(
-            series_id=path.stem,
-            splits={
-                "train": SplitData(
-                    values=frame.iloc[:, 1:],
-                    timestamps=frame.iloc[:, 0],
-                    feature_names=["value"],
-                    timestamp_kind="source",
-                )
-            },
-            source_files=[path],
-            source_metadata={
-                "timestamp_column": timestamp_col,
-                "source_feature_names": source_feature_names,
-            },
+    grouped: dict[str, list[tuple[Path, int | None]]] = {}
+    for path in files:
+        family, downsample_factor = monash_identity(path)
+        grouped.setdefault(family, []).append((path, downsample_factor))
+
+    total = 0
+    for family, family_files in sorted(grouped.items()):
+        writer = DatasetWriter(
+            source_dir / "Monash" / family,
+            source=SOURCE,
+            collection="Monash",
+            dataset=family,
+            task="pretraining",
+            project_root=project_root,
         )
-        num_series += 1
-        if index % 1000 == 0:
-            print(f"{SOURCE}/{dataset}: {index}/{len(files)}")
-    writer.finalize()
-    print(f"{SOURCE}/{dataset}: {num_series} series")
+        for path, downsample_factor in family_files:
+            frame = pd.read_csv(path)
+            if frame.empty or frame.shape[1] < 2:
+                raise ValueError(f"invalid Monash series: {path}")
+            timestamp_col = str(frame.columns[0])
+            source_feature_names = [str(column) for column in frame.columns[1:]]
+            if len(source_feature_names) != 1:
+                raise ValueError(f"Monash series is not univariate: {path}")
+            writer.add_series(
+                series_id=path.stem,
+                splits={
+                    "train": SplitData(
+                        values=frame.iloc[:, 1:],
+                        timestamps=frame.iloc[:, 0],
+                        feature_names=["value"],
+                        timestamp_kind="source",
+                    )
+                },
+                source_files=[path],
+                source_metadata={
+                    "monash_family": family,
+                    "timestamp_column": timestamp_col,
+                    "source_feature_names": source_feature_names,
+                    "downsample_factor": downsample_factor,
+                },
+            )
+            total += 1
+            if total % 1000 == 0:
+                print(f"{SOURCE}/Monash: {total}/{len(files)}")
+        writer.finalize(
+            source_metadata={
+                "monash_collection": "DADA pretraining",
+                "family": family,
+            }
+        )
+        print(f"{SOURCE}/Monash/{family}: {len(family_files)} series")
 
 
 def main() -> None:

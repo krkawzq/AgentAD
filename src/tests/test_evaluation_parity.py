@@ -1,4 +1,9 @@
-"""Numerical agreement with the ordinary time-series benchmark implementation."""
+"""Numerical agreement with the ordinary time-series benchmark implementation.
+
+Parity is asserted on inputs outside the three reference defects listed in
+``agentad.evaluation.metrics``; where the reference is defective the metric
+definition takes precedence.
+"""
 
 from __future__ import annotations
 
