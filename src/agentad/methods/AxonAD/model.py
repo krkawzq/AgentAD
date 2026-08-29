@@ -148,27 +148,25 @@ class AxonAD(nn.Module):
         self.target_position.requires_grad_(False)
 
     def _training_mask(self, batch: int, device: torch.device) -> Tensor:
-        mask = torch.zeros(
-            batch, self.config.window_length, device=device, dtype=torch.bool
-        )
         if not self.training:
-            return mask
+            return torch.zeros(
+                batch, self.config.window_length, device=device, dtype=torch.bool
+            )
         start = self.config.forecast_steps
         available = self.config.window_length - start
         block = max(1, round(available * self.config.mask_block_fraction))
         blocks = max(1, math.ceil(available * self.config.mask_ratio / block))
-        for row in range(batch):
-            for _ in range(blocks):
-                position = int(
-                    torch.randint(
-                        start,
-                        max(start + 1, self.config.window_length - block + 1),
-                        (),
-                        device=device,
-                    )
-                )
-                mask[row, position : position + block] = True
-        return mask
+        starts = torch.randint(
+            start,
+            max(start + 1, self.config.window_length - block + 1),
+            (batch, blocks),
+            device=device,
+        )
+        positions = torch.arange(self.config.window_length, device=device)
+        return (
+            (positions[None, None] >= starts[:, :, None])
+            & (positions[None, None] < starts[:, :, None] + block)
+        ).any(1)
 
     def forward(self, windows: Tensor) -> AxonADOutput:
         windows = validate_series(
@@ -257,6 +255,8 @@ class AxonAD(nn.Module):
         normal_series = validate_series(
             normal_series, min_length=self.config.window_length, name="normal_series"
         )
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
         with evaluation_mode(self):
             windows = sliding_windows(normal_series, self.config.window_length).flatten(
                 0, 1
@@ -283,6 +283,8 @@ class AxonAD(nn.Module):
         if not self.calibrated:
             raise RuntimeError("call calibrate() before score()")
         series = validate_series(series, min_length=self.config.window_length)
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
         with evaluation_mode(self):
             windows = sliding_windows(series, self.config.window_length)
             flattened = windows.flatten(0, 1)

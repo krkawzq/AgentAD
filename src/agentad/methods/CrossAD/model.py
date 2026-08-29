@@ -35,7 +35,19 @@ class _SequenceNorm(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         if self.batch:
-            return self.norm(x.transpose(1, 2)).transpose(1, 2)
+            channels_first = x.transpose(1, 2)
+            if self.training and x.shape[0] * x.shape[1] == 1:
+                return F.batch_norm(
+                    channels_first,
+                    self.norm.running_mean,
+                    self.norm.running_var,
+                    self.norm.weight,
+                    self.norm.bias,
+                    training=False,
+                    momentum=0.0,
+                    eps=self.norm.eps,
+                ).transpose(1, 2)
+            return self.norm(channels_first).transpose(1, 2)
         return self.norm(x)
 
 

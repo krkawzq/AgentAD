@@ -249,10 +249,15 @@ class _PrototypeBank(nn.Module):
     @torch.no_grad()
     def update(self, latents: Tensor, assignments: Tensor, momentum: float) -> None:
         latents = self.normalize(latents)
-        for index in assignments.unique():
-            selected = assignments == index
-            mean = latents[selected].mean(0)
-            self.prototypes[index].mul_(momentum).add_(mean, alpha=1 - momentum)
+        counts = torch.bincount(assignments, minlength=self.prototypes.shape[0]).to(
+            latents.dtype
+        )
+        sums = torch.zeros_like(self.prototypes).index_add(0, assignments, latents)
+        active = counts > 0
+        means = sums[active] / counts[active, None]
+        self.prototypes[active] = (
+            momentum * self.prototypes[active] + (1 - momentum) * means
+        )
 
 
 class _TimeEncoder(nn.Module):
@@ -406,17 +411,13 @@ class Left(nn.Module):
         )
         self.register_buffer("training_steps", torch.zeros((), dtype=torch.long))
 
-    def _memory_weight(self) -> float:
+    def _memory_weight(self) -> float | Tensor:
         if not self.training:
             return self.config.memory_weight_max
-        step = int(self.training_steps)
-        if step < self.config.memory_warmup_steps:
-            return 0.0
-        progress = min(
-            1.0,
-            (step - self.config.memory_warmup_steps)
-            / max(self.config.memory_ramp_steps, 1),
-        )
+        progress = (
+            (self.training_steps - self.config.memory_warmup_steps)
+            / max(self.config.memory_ramp_steps, 1)
+        ).clamp(0, 1)
         return self.config.memory_weight_max * progress
 
     @staticmethod

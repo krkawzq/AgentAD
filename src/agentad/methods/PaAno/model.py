@@ -181,6 +181,8 @@ class PaAno(nn.Module):
         pretext_step = (
             self.config.patch_length if pretext_step is None else pretext_step
         )
+        if pretext_step <= 0:
+            raise ValueError("pretext_step must be positive")
         anchors = all_patches.index_select(0, anchor_indices)
         positive_indices = self._random_neighbor_indices(
             anchor_indices,
@@ -267,7 +269,7 @@ class PaAno(nn.Module):
             triplet + current_weight * pretext, triplet, pretext, current_weight
         )
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def build_memory_bank(self, patches: Tensor, *, batch_size: int = 2048) -> Tensor:
         """Encode normal patches and retain their embeddings as the scoring bank."""
         if patches.ndim != 3 or patches.shape[0] == 0:
@@ -276,15 +278,13 @@ class PaAno(nn.Module):
             )
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
-        was_training = self.training
-        self.eval()
-        embeddings = [self.encoder(chunk) for chunk in patches.split(batch_size)]
-        memory = F.normalize(torch.cat(embeddings), dim=1, eps=1e-12).detach()
-        self.normal_memory = memory
-        self.train(was_training)
-        return memory
+        with evaluation_mode(self):
+            embeddings = [self.encoder(chunk) for chunk in patches.split(batch_size)]
+            memory = F.normalize(torch.cat(embeddings), dim=1, eps=1e-12).detach()
+            self.normal_memory = memory
+            return memory
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def fit_memory(self, normal_series: Tensor, *, batch_size: int = 2048) -> Tensor:
         normal_series = validate_series(
             normal_series,

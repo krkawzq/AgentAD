@@ -63,6 +63,13 @@ class TSPulseConfig:
             raise ValueError("dropout must be in [0,1) and mask_ratio in (0,1)")
         if not self.score_modes:
             raise ValueError("score_modes cannot be empty")
+        supported_modes = {"time", "frequency", "forecast"}
+        if any(mode not in supported_modes for mode in self.score_modes):
+            raise ValueError(
+                f"score_modes must be selected from {sorted(supported_modes)}"
+            )
+        if len(set(self.score_modes)) != len(self.score_modes):
+            raise ValueError("score_modes cannot contain duplicates")
         if any(
             weight < 0
             for weight in (

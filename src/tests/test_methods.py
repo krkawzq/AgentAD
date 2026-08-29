@@ -35,7 +35,11 @@ from agentad.methods import (  # noqa: E402
     XLSTMADConfig,
     inject_anomalies,
 )
-from agentad.methods._utils import overlap_average  # noqa: E402
+from agentad.methods._utils import (  # noqa: E402
+    evaluation_mode,
+    overlap_average,
+    topk_cosine_distance,
+)
 
 
 def assert_finite_shape(tensor, shape):
@@ -62,6 +66,35 @@ def test_method_registry_exposes_detectors_but_not_agent_frameworks():
     }
 
 
+def test_evaluation_mode_restores_mixed_submodule_states():
+    module = torch.nn.Sequential(torch.nn.Dropout(), torch.nn.BatchNorm1d(2))
+    module.train()
+    module[0].eval()
+    with evaluation_mode(module):
+        assert not any(child.training for child in module.modules())
+    assert module.training
+    assert not module[0].training
+    assert module[1].training
+
+
+def test_chunked_topk_cosine_matches_dense_reference():
+    queries = torch.randn(7, 5)
+    bank = torch.randn(11, 5)
+    expected = 1 - (
+        torch.nn.functional.normalize(queries, dim=1)
+        @ torch.nn.functional.normalize(bank, dim=1).T
+    ).topk(3, dim=1).values.mean(1)
+    actual = topk_cosine_distance(
+        queries,
+        bank,
+        k=3,
+        query_chunk_size=2,
+        bank_chunk_size=4,
+    )
+    assert torch.allclose(actual, expected)
+    assert topk_cosine_distance(queries[:0], bank, k=1).shape == (0,)
+
+
 def test_patch_scores_are_averaged_over_covered_points():
     scores = torch.tensor([[1.0, 2.0, 3.0]])
     assert torch.equal(
@@ -77,6 +110,13 @@ def test_patch_scores_are_averaged_over_covered_points():
         ),
         torch.tensor([[1.0, 1.0, 2.0, 2.0]]),
     )
+    with pytest.raises(ValueError, match="uncovered"):
+        overlap_average(
+            torch.tensor([[1.0, 2.0]]),
+            patch_length=2,
+            output_length=5,
+            stride=2,
+        )
 
 
 def test_aerca_losses_scores_causality_and_root_causes():
@@ -140,6 +180,12 @@ def test_carla_two_stage_losses_neighbor_mining_and_scores():
     rows = torch.arange(8)[:, None]
     assert not (nearest == rows).any()
     assert not (furthest == rows).any()
+    features = torch.nn.functional.normalize(model.encode(anchors), dim=1)
+    similarity = features @ features.T
+    similarity.fill_diagonal_(-torch.inf)
+    assert torch.equal(nearest, similarity.topk(2, dim=1).indices)
+    similarity.fill_diagonal_(torch.inf)
+    assert torch.equal(furthest, similarity.topk(2, dim=1, largest=False).indices)
     model.calibrate_normal_clusters(anchors)
     assert_finite_shape(model.window_score(anchors), (8,))
     assert_finite_shape(model.score(torch.randn(2, 12, 2)), (2, 12))
@@ -220,6 +266,8 @@ def test_tspulse_finetune_loss_and_zero_shot_score():
     )
     assert losses.total.ndim == 0 and torch.isfinite(losses.total)
     losses.total.backward()
+    with pytest.raises(ValueError, match="hide at least one"):
+        finetuned.compute_loss(windows, observed_mask=torch.ones_like(windows))
 
     zero_shot = TSPulseZeroShot(config)
     assert_finite_shape(zero_shot.score(torch.randn(1, 22, 2), batch_size=3), (1, 22))
@@ -245,6 +293,10 @@ def test_time_rcd_loss_score_and_checkpoint_conversion(tmp_path):
     )
     assert losses.total.ndim == 0 and torch.isfinite(losses.total)
     losses.total.backward()
+    with pytest.raises(ValueError, match="at least one time point"):
+        model.compute_loss(series, masked_points=torch.zeros(2, 12, dtype=torch.bool))
+    with pytest.raises(ValueError, match="at least one valid"):
+        model(series, torch.zeros(2, 12, dtype=torch.bool))
     model.eval()
     assert_finite_shape(model.score(series, batch_size=2), (2, 12))
     checkpoint = tmp_path / "time_rcd.pth"
@@ -337,6 +389,32 @@ def test_crossad_loss_and_score_shapes():
     assert torch.equal(context_before, model.context_memory.context)
 
 
+def test_crossad_batch_norm_handles_single_token_training_case():
+    model = CrossAD(
+        CrossADConfig(
+            sequence_length=2,
+            patch_length=2,
+            scale_kernels=(2,),
+            top_frequencies=1,
+            query_count=1,
+            query_length=1,
+            context_size=2,
+            encoder_layers=1,
+            decoder_layers=1,
+            extractor_layers=1,
+            heads=1,
+            model_dim=4,
+            normalization="batch",
+            attention_dropout=0,
+            projection_dropout=0,
+            feedforward_dropout=0,
+        )
+    )
+    losses = model.compute_loss(torch.randn(1, 2, 1))
+    assert torch.isfinite(losses.total)
+    losses.total.backward()
+
+
 def test_dada_masked_reconstructions_score_and_checkpoint_conversion(tmp_path):
     config = DADAConfig(
         sequence_length=12,
@@ -369,6 +447,11 @@ def test_dada_masked_reconstructions_score_and_checkpoint_conversion(tmp_path):
     restored.load_reference_checkpoint(checkpoint)
     for expected, actual in zip(model.parameters(), restored.parameters()):
         assert torch.equal(expected, actual)
+    model.train()
+    training_output = model(series, generator=torch.Generator().manual_seed(9))
+    (training_output.reconstructions.mean() + training_output.balance_loss).backward()
+    assert model.adaptive_bottleneck.w_gate.grad is not None
+    assert torch.isfinite(model.adaptive_bottleneck.w_gate.grad).all()
 
 
 def test_kanad_forecast_pairs_loss_and_score():

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+import math
 
 import torch
 from torch import Tensor
@@ -14,12 +15,13 @@ from torch.nn import functional as F
 @contextmanager
 def evaluation_mode(module: nn.Module) -> Iterator[None]:
     """Temporarily use deterministic evaluation behavior and restore the caller state."""
-    was_training = module.training
+    states = [(submodule, submodule.training) for submodule in module.modules()]
     module.eval()
     try:
         yield
     finally:
-        module.train(was_training)
+        for submodule, was_training in states:
+            submodule.training = was_training
 
 
 def validate_series(
@@ -80,6 +82,12 @@ def overlap_average(
             f"{count} patch scores cannot cover length {output_length} "
             f"with patch_length={patch_length} and stride={stride}"
         )
+    covered_length = (count - 1) * stride + patch_length
+    if stride > patch_length or covered_length != output_length:
+        raise ValueError(
+            "patch layout leaves uncovered output points; choose a stride that "
+            "covers the complete output length"
+        )
 
     starts = torch.arange(count, device=patch_scores.device) * stride
     ends = starts + patch_length
@@ -114,6 +122,8 @@ def topk_cosine_distance(
         )
     if bank.shape[0] == 0:
         raise RuntimeError("the normal memory bank is empty")
+    if queries.shape[0] == 0:
+        return queries.new_empty(0)
     if k <= 0:
         raise ValueError("k must be positive")
     if query_chunk_size <= 0 or bank_chunk_size <= 0:
@@ -133,7 +143,11 @@ def topk_cosine_distance(
             similarities = (
                 query @ normalized_bank[b_start : b_start + bank_chunk_size].T
             )
-            candidates = torch.cat((best, similarities), dim=1)
+            chunk_k = min(k, similarities.shape[1])
+            chunk_best = similarities.topk(
+                chunk_k, dim=1, largest=True, sorted=False
+            ).values
+            candidates = torch.cat((best, chunk_best), dim=1)
             best = candidates.topk(k, dim=1, largest=True, sorted=False).values
         distances.append((1 - best).mean(dim=1))
     return torch.cat(distances, dim=0)
@@ -145,8 +159,7 @@ def sinusoidal_encoding(
     """Create a standard sinusoidal position table of shape ``[1, length, width]``."""
     positions = torch.arange(length, dtype=dtype).unsqueeze(1)
     frequencies = torch.exp(
-        torch.arange(0, width, 2, dtype=dtype)
-        * (-torch.log(torch.tensor(10_000.0)) / width)
+        torch.arange(0, width, 2, dtype=dtype) * (-math.log(10_000.0) / width)
     )
     table = torch.zeros(length, width, dtype=dtype)
     table[:, 0::2] = torch.sin(positions * frequencies)

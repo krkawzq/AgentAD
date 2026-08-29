@@ -112,7 +112,13 @@ class TSPulse(nn.Module):
 
     def _denormalize(self, x: Tensor, location: Tensor, scale: Tensor) -> Tensor:
         if self.revin_weight is not None:
-            x = (x - self.revin_bias) / self.revin_weight.clamp_min(self.config.epsilon)
+            denominator = torch.where(
+                self.revin_weight.abs() < self.config.epsilon,
+                self.revin_weight.sign().masked_fill(self.revin_weight == 0, 1)
+                * self.config.epsilon,
+                self.revin_weight,
+            )
+            x = (x - self.revin_bias) / denominator
         return x * scale + location
 
     def _random_observed_mask(
@@ -143,6 +149,7 @@ class TSPulse(nn.Module):
             observed_mask = torch.ones_like(series, dtype=torch.bool)
         if observed_mask.shape != series.shape:
             raise ValueError("observed_mask must match series shape")
+        observed_mask = observed_mask.bool()
         normalized, location, scale = self._normalize(series)
         relative = torch.arange(self.config.context_length, device=series.device)
         replacement = self.mask_token[relative % self.config.patch_length]
@@ -225,8 +232,26 @@ class TSPulse(nn.Module):
         observed_mask: Tensor | None = None,
         generator: torch.Generator | None = None,
     ) -> TSPulseLoss:
+        series = validate_series(series, length=self.config.context_length)
+        if series.shape[2] != self.config.input_features:
+            raise ValueError("series feature count does not match the TSPulse config")
         if observed_mask is None:
             observed_mask = self._random_observed_mask(series, generator)
+        elif observed_mask.shape != series.shape:
+            raise ValueError("observed_mask must match series shape")
+        observed_mask = observed_mask.bool()
+        if observed_mask.all():
+            raise ValueError("observed_mask must hide at least one point")
+        if future_values is not None and future_values.shape != (
+            series.shape[0],
+            self.config.forecast_length,
+            self.config.input_features,
+        ):
+            raise ValueError(
+                "future_values must have shape "
+                f"[{series.shape[0]}, {self.config.forecast_length}, "
+                f"{self.config.input_features}]"
+            )
         output = self(series, observed_mask)
         selected = output.masked_points
         time_loss = F.mse_loss(output.time_reconstruction[selected], series[selected])
@@ -282,11 +307,14 @@ class TSPulse(nn.Module):
             self.config.context_length,
             self.config.input_features,
         )
+        offsets = torch.arange(self.config.patch_length, device=windows.device)
+        indices = patch_starts[:, None] + offsets[None]
+        gather_indices = indices[None, :, :, None].expand(
+            windows.shape[0], -1, -1, self.config.input_features
+        )
+        selected = source.gather(2, gather_indices)
         reconstruction = windows.clone()
-        for index, patch_start in enumerate(patch_starts.tolist()):
-            reconstruction[:, patch_start : patch_start + self.config.patch_length] = (
-                source[:, index, patch_start : patch_start + self.config.patch_length]
-            )
+        reconstruction[:, start:] = selected.flatten(1, 2)
         return reconstruction
 
     @staticmethod

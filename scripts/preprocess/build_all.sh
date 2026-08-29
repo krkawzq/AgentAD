@@ -46,6 +46,26 @@ processors=(
     process_tsbad.py
 )
 
+# Newly audited sources are optional because WADI is access-controlled and the
+# other corpora are downloaded separately. Once their raw marker exists they
+# participate in the same staged build automatically.
+optional_processors=(
+    "process_aerca.py:data/raw/AERCA"
+    "process_wadi.py:data/raw/WADI"
+    "process_granite_tsfm.py:data/raw/GraniteTSFM/ZafNoo.csv"
+    "process_gift_eval.py:data/raw/GiftEval"
+    "process_time_rcd.py:data/raw/TimeRCD/datasets"
+)
+for spec in "${optional_processors[@]}"; do
+    script="${spec%%:*}"
+    marker="${spec#*:}"
+    if [[ -e "$marker" ]]; then
+        processors+=("$script")
+    else
+        echo "skip optional source for $script (missing $marker)"
+    fi
+done
+
 timestamp="$(date +%Y%m%d-%H%M%S)"
 output_parent="$(dirname "$output")"
 mkdir -p "$output_parent"

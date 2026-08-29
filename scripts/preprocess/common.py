@@ -201,6 +201,7 @@ class SplitData:
     labels: Sequence[Any] | np.ndarray | pd.Series | None = None
     feature_names: Sequence[str] | None = None
     timestamp_kind: str = "index"
+    label_columns: pd.DataFrame | Mapping[str, Sequence[Any]] | None = None
 
 
 def long_to_split(df: pd.DataFrame, *, require_label: bool = True) -> SplitData:
@@ -318,6 +319,41 @@ def _label_vector(labels: Any, rows: int) -> np.ndarray | None:
     ):
         return real.astype(np.int64)
     return real
+
+
+def _label_columns_frame(
+    columns: pd.DataFrame | Mapping[str, Sequence[Any]] | None, rows: int
+) -> pd.DataFrame:
+    """Normalize source-specific point annotations stored beside ``label``."""
+    if columns is None:
+        return pd.DataFrame(index=pd.RangeIndex(rows))
+    if isinstance(columns, pd.DataFrame):
+        frame = columns.copy(deep=False).reset_index(drop=True)
+    elif isinstance(columns, Mapping):
+        normalized: dict[str, pd.Series] = {}
+        for name, values in columns.items():
+            string_name = str(name)
+            if string_name in normalized:
+                raise ValueError(
+                    "label_columns names collide after string conversion: "
+                    f"{string_name!r}"
+                )
+            normalized[string_name] = pd.Series(values).reset_index(drop=True)
+        frame = pd.DataFrame(normalized)
+    else:
+        raise TypeError("label_columns must be a DataFrame, mapping, or None")
+    if len(frame) != rows:
+        raise ValueError(f"label_columns has {len(frame)} rows, expected {rows}")
+    if not frame.columns.is_unique:
+        raise ValueError("label_columns must have unique columns")
+    if any(not isinstance(name, str) or not name for name in frame.columns):
+        raise ValueError("label_columns names must be non-empty strings")
+    reserved = set(frame.columns) & {"label", "timestamp"}
+    if reserved:
+        raise ValueError(
+            f"label_columns uses reserved names: {sorted(reserved)}"
+        )
+    return frame
 
 
 def _timestamp_encoding(
@@ -621,6 +657,7 @@ class _SplitBuffer:
     matrix: np.ndarray
     names: list[str]
     labels: np.ndarray | None
+    label_columns: pd.DataFrame
     packed_timestamps: np.ndarray
     original_timestamps: pd.Series | None
     encoded_timestamp_kind: str
@@ -709,6 +746,7 @@ class DatasetWriter:
             elif names != canonical:
                 raise ValueError(f"feature names differ between splits for {series_id}")
             labels = _label_vector(split.labels, len(matrix))
+            label_columns = _label_columns_frame(split.label_columns, len(matrix))
             if (
                 self._task == "anomaly_detection"
                 and labels is not None
@@ -727,6 +765,7 @@ class DatasetWriter:
                 matrix=matrix,
                 names=names,
                 labels=labels,
+                label_columns=label_columns,
                 packed_timestamps=packed_timestamps,
                 original_timestamps=(
                     original_timestamps
@@ -768,7 +807,13 @@ class DatasetWriter:
         self._dataset_dir.mkdir(parents=True, exist_ok=True)
         dataset_source_metadata = jsonable(dict(source_metadata or {}))
 
-        group_key = tuple[tuple[str, ...], str, bool, bool]
+        group_key = tuple[
+            tuple[str, ...],
+            str,
+            bool,
+            tuple[tuple[str, str], ...],
+            bool,
+        ]
         groups: dict[str, dict[group_key, list[_SeriesEntry]]] = {}
         for entry in self._entries:
             for split_name, buffer in entry.splits.items():
@@ -777,6 +822,14 @@ class DatasetWriter:
                         tuple(buffer.names),
                         buffer.matrix.dtype.str,
                         buffer.labels is not None,
+                        tuple(
+                            (str(name), str(dtype))
+                            for name, dtype in zip(
+                                buffer.label_columns.columns,
+                                buffer.label_columns.dtypes,
+                                strict=True,
+                            )
+                        ),
                         buffer.encoded_timestamp_kind == "offset",
                     ),
                     [],
@@ -814,23 +867,16 @@ class DatasetWriter:
 
         items: list[SeriesItem] = []
         for entry, buffer in prepared:
-            columns: dict[str, Any] = {}
+            frame = buffer.label_columns.copy(deep=False).reset_index(drop=True)
             if buffer.labels is not None:
-                columns["label"] = buffer.labels
+                frame.insert(0, "label", buffer.labels)
             if needs_original:
                 if buffer.original_timestamps is None:
                     raise AssertionError("offset timestamps lost their source values")
-                columns["timestamp"] = [
+                frame["timestamp"] = [
                     str(value) for value in buffer.original_timestamps.tolist()
                 ]
-            if columns:
-                frame = pd.DataFrame(
-                    {
-                        name: pd.Series(values).reset_index(drop=True)
-                        for name, values in columns.items()
-                    }
-                )
-            else:
+            if frame.shape[1] == 0:
                 frame = pd.DataFrame(index=pd.RangeIndex(len(buffer.packed_timestamps)))
             source_events = [
                 item

@@ -216,6 +216,7 @@ class CARLA(nn.Module):
     def _encode_batches(self, windows: Tensor, batch_size: int) -> Tensor:
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
+        windows = self._validate_windows(windows)
         return torch.cat([self.encode(chunk) for chunk in windows.split(batch_size)])
 
     @torch.inference_mode()
@@ -261,20 +262,26 @@ class CARLA(nn.Module):
                         diagonal - query_start,
                         diagonal - bank_start,
                     ] = torch.nan
-                indices = torch.arange(
-                    bank_start, bank_stop, device=features.device
-                ).expand(query.shape[0], -1)
-                near_values = torch.cat(
-                    (nearest_values, similarity.nan_to_num(nan=-torch.inf)), dim=1
+                chunk_k = min(k, bank_stop - bank_start)
+                chunk_nearest_values, chunk_nearest_indices = similarity.nan_to_num(
+                    nan=-torch.inf
+                ).topk(chunk_k, dim=1)
+                chunk_nearest_indices = chunk_nearest_indices + bank_start
+                near_values = torch.cat((nearest_values, chunk_nearest_values), dim=1)
+                near_indices = torch.cat(
+                    (nearest_indices, chunk_nearest_indices), dim=1
                 )
-                near_indices = torch.cat((nearest_indices, indices), dim=1)
                 nearest_values, selected = near_values.topk(k, dim=1)
                 nearest_indices = near_indices.gather(1, selected)
 
-                far_values = torch.cat(
-                    (furthest_values, similarity.nan_to_num(nan=torch.inf)), dim=1
+                chunk_furthest_values, chunk_furthest_indices = similarity.nan_to_num(
+                    nan=torch.inf
+                ).topk(chunk_k, dim=1, largest=False)
+                chunk_furthest_indices = chunk_furthest_indices + bank_start
+                far_values = torch.cat((furthest_values, chunk_furthest_values), dim=1)
+                far_indices = torch.cat(
+                    (furthest_indices, chunk_furthest_indices), dim=1
                 )
-                far_indices = torch.cat((furthest_indices, indices), dim=1)
                 furthest_values, selected = far_values.topk(k, dim=1, largest=False)
                 furthest_indices = far_indices.gather(1, selected)
             nearest.append(nearest_indices)
@@ -287,6 +294,7 @@ class CARLA(nn.Module):
     ) -> Tensor:
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
+        normal_windows = self._validate_windows(normal_windows)
         with evaluation_mode(self):
             counts = torch.zeros(
                 self.config.cluster_heads,

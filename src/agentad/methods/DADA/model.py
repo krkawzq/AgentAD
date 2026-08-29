@@ -206,7 +206,7 @@ class _Decoder(nn.Module):
 
 class _ReverseGradient(Function):
     @staticmethod
-    def forward(ctx: Any, x: Tensor, coefficient: float) -> Tensor:
+    def forward(ctx: Any, x: Tensor, coefficient: Tensor) -> Tensor:
         ctx.coefficient = coefficient
         return x.view_as(x)
 
@@ -225,8 +225,8 @@ class _WarmGradientReversal(nn.Module):
         )
 
     def forward(self, x: Tensor) -> Tensor:
-        progress = min(self.steps.item() / self.total_steps, 1.0)
-        coefficient = self.maximum * (2 / (1 + math.exp(-progress)) - 1)
+        progress = (self.steps.to(x.dtype) / self.total_steps).clamp(max=1)
+        coefficient = self.maximum * (2 / (1 + torch.exp(-progress)) - 1)
         if self.training:
             self.steps.add_(1)
         return _ReverseGradient.apply(x, coefficient)

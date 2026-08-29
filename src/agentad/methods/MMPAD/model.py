@@ -56,9 +56,7 @@ class MMPAD(nn.Module):
         self_join: bool,
     ) -> Tensor:
         dimensions = self._dimension_count(query.shape[-1])
-        exclusion = max(
-            1, int(self.config.exclusion_fraction * self.config.subsequence_length)
-        )
+        exclusion = int(self.config.exclusion_fraction * self.config.subsequence_length)
         reference_positions = torch.arange(reference.shape[0], device=query.device)
         chunks: list[Tensor] = []
         for start in range(0, query.shape[0], self.config.query_chunk_size):
@@ -120,7 +118,7 @@ class MMPAD(nn.Module):
                     raise ValueError(
                         "series feature count differs from the fitted reference"
                     )
-                reference = self.reference_patches
+                reference = self.reference_patches.to(query_batches)
                 for query in query_batches:
                     outputs.append(
                         self._align(

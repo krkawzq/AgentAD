@@ -25,8 +25,8 @@ const BAND = "rgba(187, 50, 50, 0.08)";
 const BAND_EDGE = "rgba(187, 50, 50, 0.28)";
 
 export function chartGeometry(width, height, featureCount, layout) {
-  const left = width < 540 ? 48 : 62;
-  const right = Math.max(left + 40, width - 18);
+  const left = 148;
+  const right = Math.max(left + 40, width - 20);
   const top = 18;
   const bottom = Math.max(top + 30, height - 34);
   const lanes = layout === "overlay" ? 1 : Math.max(1, featureCount);
@@ -107,15 +107,16 @@ function drawTimeAxis(context, data, viewport, geometry) {
   context.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
   context.textAlign = "center";
   context.textBaseline = "top";
-  for (let tick = 0; tick < 6; tick += 1) {
-    const fraction = tick / 5;
+  const tickCount = plotWidth < 500 ? 4 : 6;
+  for (let tick = 0; tick < tickCount; tick += 1) {
+    const fraction = tick / (tickCount - 1);
     const target = viewport[0] + span * fraction;
     const sample = nearestSampleIndex(data.indices, target);
     if (sample < 0) continue;
     const x = geometry.left + ((data.indices[sample] - viewport[0]) / span) * plotWidth;
     if (x < geometry.left - 1 || x > geometry.right + 1) continue;
     const label = data.timestamp_labels[sample] ?? String(data.indices[sample]);
-    const maxWidth = Math.max(42, plotWidth / 6 - 10);
+    const maxWidth = Math.max(42, plotWidth / tickCount - 10);
     context.fillText(
       textEllipsis(context, String(label), maxWidth),
       x,
@@ -206,22 +207,26 @@ export function renderChart(canvas, options) {
     context.restore();
 
     if (layout === "stacked") {
+      context.save();
+      context.beginPath();
+      context.rect(0, laneTop, geometry.left - 5, geometry.laneHeight);
+      context.clip();
+      const trackColor = TRACK_COLORS[feature.index % TRACK_COLORS.length];
+      context.fillStyle = trackColor;
+      context.fillRect(8, laneTop + 8, 3, 30);
       context.fillStyle = INK;
       context.font = "600 11px ui-sans-serif, system-ui, sans-serif";
       context.textAlign = "left";
       context.textBaseline = "top";
-      context.fillText(
-        textEllipsis(context, feature.name, Math.max(30, geometry.left - 12)),
-        8,
-        laneTop + 8,
-      );
+      context.fillText(feature.name, 17, laneTop + 8);
       context.fillStyle = MUTED;
       context.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
       context.fillText(
         `${formatNumber(domain.min)} – ${formatNumber(domain.max)}`,
-        8,
-        laneTop + 25,
+        17,
+        laneTop + 27,
       );
+      context.restore();
     }
   }
 

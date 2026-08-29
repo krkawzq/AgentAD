@@ -31,7 +31,7 @@ const SIDEBAR_MIN_WIDTH = 240;
 const SIDEBAR_MAX_WIDTH = 520;
 const SIDEBAR_WIDTH_KEY = "agentad-visualizer:sidebar-width";
 
-function Header({ overview, activePath, onMenu, onInspector, onHelp }) {
+function Header({ overview, activePath, inspectorOpen, onMenu, onInspector, onHelp }) {
   return (
     <header className="app-header">
       <div className="header-brand">
@@ -61,7 +61,14 @@ function Header({ overview, activePath, onMenu, onInspector, onHelp }) {
         <button type="button" aria-label="Show keyboard reference" title="Keyboard reference" onClick={onHelp}>
           <CircleHelp size={17} />
         </button>
-        <button type="button" aria-label="Open inspector" title="Open inspector" onClick={onInspector}>
+        <button
+          type="button"
+          className={inspectorOpen ? "is-active" : ""}
+          aria-label={inspectorOpen ? "Close inspector" : "Open inspector"}
+          aria-pressed={inspectorOpen}
+          title={inspectorOpen ? "Close inspector" : "Open inspector"}
+          onClick={onInspector}
+        >
           <PanelRight size={17} />
         </button>
       </div>
@@ -153,89 +160,91 @@ function Toolbar({
 }) {
   return (
     <div className="editor-toolbar" aria-label="Visualization controls">
-      <div className="toolbar-group">
-        <span className="toolbar-caption">TOOL</span>
-        <div className="segmented">
-          <button
-            type="button"
-            className={mode === "select" ? "is-active" : ""}
-            aria-pressed={mode === "select"}
-            title="Box zoom (Z)"
-            onClick={() => onMode("select")}
-          >
-            <MousePointer2 size={14} /> Select
-          </button>
-          <button
-            type="button"
-            className={mode === "pan" ? "is-active" : ""}
-            aria-pressed={mode === "pan"}
-            title="Pan (V or Space)"
-            onClick={() => onMode("pan")}
-          >
-            <Hand size={14} /> Pan
-          </button>
+      <div className="toolbar-primary">
+        <div className="toolbar-group">
+          <span className="toolbar-caption">Tool</span>
+          <div className="segmented">
+            <button
+              type="button"
+              className={mode === "select" ? "is-active" : ""}
+              aria-pressed={mode === "select"}
+              title="Box zoom (Z)"
+              onClick={() => onMode("select")}
+            >
+              <MousePointer2 size={14} /> Select
+            </button>
+            <button
+              type="button"
+              className={mode === "pan" ? "is-active" : ""}
+              aria-pressed={mode === "pan"}
+              title="Pan (V or Space)"
+              onClick={() => onMode("pan")}
+            >
+              <Hand size={14} /> Pan
+            </button>
+          </div>
+        </div>
+        <div className="toolbar-group">
+          <span className="toolbar-caption">View</span>
+          <div className="icon-cluster">
+            <button type="button" aria-label="Zoom out" title="Zoom out (-)" disabled={disabled} onClick={() => onZoom(1.35)}>
+              <ZoomOut size={15} />
+            </button>
+            <button type="button" aria-label="Zoom in" title="Zoom in (+)" disabled={disabled} onClick={() => onZoom(0.75)}>
+              <ZoomIn size={15} />
+            </button>
+            <button type="button" aria-label="Fit all points" title="Fit all (0)" disabled={disabled} onClick={onFit}>
+              <Maximize2 size={15} />
+            </button>
+          </div>
+        </div>
+        <div className="toolbar-group">
+          <span className="toolbar-caption">Layout</span>
+          <div className="segmented">
+            <button
+              type="button"
+              className={layout === "stacked" ? "is-active" : ""}
+              aria-pressed={layout === "stacked"}
+              onClick={() => onLayout("stacked")}
+            >
+              <Rows3 size={14} /> Stacked
+            </button>
+            <button
+              type="button"
+              className={layout === "overlay" ? "is-active" : ""}
+              aria-pressed={layout === "overlay"}
+              onClick={() => onLayout("overlay")}
+            >
+              <BarChart3 size={14} /> Overlay
+            </button>
+          </div>
         </div>
       </div>
-      <div className="toolbar-group">
-        <span className="toolbar-caption">VIEW</span>
-        <div className="icon-cluster">
-          <button type="button" aria-label="Zoom out" title="Zoom out (-)" disabled={disabled} onClick={() => onZoom(1.35)}>
-            <ZoomOut size={15} />
-          </button>
-          <button type="button" aria-label="Zoom in" title="Zoom in (+)" disabled={disabled} onClick={() => onZoom(0.75)}>
-            <ZoomIn size={15} />
-          </button>
-          <button type="button" aria-label="Fit all points" title="Fit all (0)" disabled={disabled} onClick={onFit}>
-            <Maximize2 size={15} />
-          </button>
-        </div>
-      </div>
-      <div className="toolbar-divider" />
-      <label className="toolbar-field">
-        <span>Normalization</span>
-        <select value={normalization} disabled={disabled} onChange={(event) => onNormalization(event.target.value)}>
-          {(overview?.normalizations ?? []).map((option) => (
-            <option value={option.id} key={option.id}>{option.name}</option>
-          ))}
-        </select>
-      </label>
-      <label className="toolbar-field">
-        <span>Scope</span>
-        <select value={scope} disabled={disabled} onChange={(event) => onScope(event.target.value)}>
-          <option value="feature">Per feature</option>
-          <option value="global">Global</option>
-        </select>
-      </label>
-      <label className="toolbar-field">
-        <span>Label overlay</span>
-        <select value={labelIndex ?? ""} disabled={disabled} onChange={(event) => onLabel(event.target.value === "" ? null : Number(event.target.value))}>
-          <option value="">None</option>
-          {(overview?.binary_labels ?? []).map((label) => (
-            <option value={label.index} key={label.index}>{label.name}</option>
-          ))}
-        </select>
-      </label>
-      <div className="toolbar-spacer" />
-      <div className="toolbar-group">
-        <span className="toolbar-caption">TRACKS</span>
-        <div className="segmented">
-          <button
-            type="button"
-            className={layout === "stacked" ? "is-active" : ""}
-            aria-pressed={layout === "stacked"}
-            onClick={() => onLayout("stacked")}
-          >
-            <Rows3 size={14} /> Stacked
-          </button>
-          <button
-            type="button"
-            className={layout === "overlay" ? "is-active" : ""}
-            aria-pressed={layout === "overlay"}
-            onClick={() => onLayout("overlay")}
-          >
-            <BarChart3 size={14} /> Overlay
-          </button>
-        </div>
+      <div className="toolbar-settings">
+        <label className="toolbar-field">
+          <span>Normalization</span>
+          <select value={normalization} disabled={disabled} onChange={(event) => onNormalization(event.target.value)}>
+            {(overview?.normalizations ?? []).map((option) => (
+              <option value={option.id} key={option.id}>{option.name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="toolbar-field scope-field">
+          <span>Scope</span>
+          <select value={scope} disabled={disabled} onChange={(event) => onScope(event.target.value)}>
+            <option value="feature">Per feature</option>
+            <option value="global">Global</option>
+          </select>
+        </label>
+        <label className="toolbar-field">
+          <span>Label overlay</span>
+          <select value={labelIndex ?? ""} disabled={disabled} onChange={(event) => onLabel(event.target.value === "" ? null : Number(event.target.value))}>
+            <option value="">None</option>
+            {(overview?.binary_labels ?? []).map((label) => (
+              <option value={label.index} key={label.index}>{label.name}</option>
+            ))}
+          </select>
+        </label>
       </div>
     </div>
   );
@@ -302,7 +311,7 @@ export function App() {
   const [openingPath, setOpeningPath] = useState(null);
   const [activeTab, setActiveTab] = useState("sources");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(() => window.innerWidth > 1240);
   const [items, setItems] = useState([]);
   const [itemsTotal, setItemsTotal] = useState(0);
   const [itemsLoading, setItemsLoading] = useState(false);
@@ -348,6 +357,14 @@ export function App() {
       // Storage can be unavailable in privacy-restricted browser contexts.
     }
   }, [sidebarWidth]);
+
+  useEffect(() => {
+    const closeOverlayInspector = () => {
+      if (window.innerWidth <= 1240) setInspectorOpen(false);
+    };
+    window.addEventListener("resize", closeOverlayInspector);
+    return () => window.removeEventListener("resize", closeOverlayInspector);
+  }, []);
 
   const notify = useCallback((message) => {
     setNotice(message);
@@ -555,15 +572,16 @@ export function App() {
       <Header
         overview={overview}
         activePath={activePath}
+        inspectorOpen={inspectorOpen}
         onMenu={() => setSidebarOpen(true)}
-        onInspector={() => setInspectorOpen(true)}
+        onInspector={() => setInspectorOpen((current) => !current)}
         onHelp={() => {
           setInspectorOpen(true);
           notify("Keyboard shortcuts are listed in the inspector.");
         }}
       />
       <div
-        className="workspace"
+        className={`workspace ${inspectorOpen ? "has-inspector" : ""}`}
         ref={workspaceRef}
         style={{ "--sidebar-width": `${sidebarWidth}px` }}
       >

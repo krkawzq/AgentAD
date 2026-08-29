@@ -354,6 +354,7 @@ def test_http_server_serves_assets_api_errors_and_security_headers() -> None:
         connection.request("GET", "/core.js")
         response = connection.getresponse()
         assert response.status == 200
+        assert response.getheader("Cache-Control") == "no-cache"
         assert b"clampWindow" in response.read()
 
         connection.request("GET", "/api/missing")

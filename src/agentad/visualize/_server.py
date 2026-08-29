@@ -285,11 +285,10 @@ class WebUI:
                     self._write_body(body)
                     return
                 body, content_type, etag = asset
-                cache_control = (
-                    "no-cache"
-                    if path in {"/", "/index.html"}
-                    else "public, max-age=3600"
-                )
+                # Asset names are stable across frontend builds. Revalidate on
+                # every navigation so a restarted service cannot serve a new
+                # index with an hour-old JavaScript or stylesheet from cache.
+                cache_control = "no-cache"
                 if self.headers.get("If-None-Match") == etag:
                     self._headers(
                         HTTPStatus.NOT_MODIFIED,

@@ -96,11 +96,18 @@ class _RelativeAttention(nn.Module):
         value = value.reshape(batch, tokens, self.num_heads, self.head_dim).transpose(
             1, 2
         )
-        logits = query @ key.transpose(-2, -1) / math.sqrt(self.head_dim)
-        if self.binary_attention_bias is not None:
+        if self.binary_attention_bias is None:
+            attended = F.scaled_dot_product_attention(
+                query,
+                key,
+                value,
+                attn_mask=valid_tokens[:, None, None],
+            )
+        else:
+            logits = query @ key.transpose(-2, -1) / math.sqrt(self.head_dim)
             logits = logits + self.binary_attention_bias(feature_ids)
-        logits.masked_fill_(~valid_tokens[:, None, None], -torch.inf)
-        attended = logits.softmax(-1) @ value
+            logits.masked_fill_(~valid_tokens[:, None, None], -torch.inf)
+            attended = logits.softmax(-1) @ value
         attended = attended.transpose(1, 2).reshape(batch, tokens, width)
         return self.out_proj(attended)
 
@@ -241,6 +248,9 @@ class TimeRCD(nn.Module):
             )
         if valid_mask.shape != series.shape[:2]:
             raise ValueError("valid_mask must have shape [batch, time]")
+        valid_mask = valid_mask.bool()
+        if not valid_mask.any(1).all():
+            raise ValueError("every sample must contain at least one valid time point")
         embeddings = self.ts_encoder(series, valid_mask)
         logits = self.anomaly_head(embeddings).mean(2)
         reconstruction = self.reconstruction_head(embeddings).squeeze(-1)
@@ -272,20 +282,18 @@ class TimeRCD(nn.Module):
             masked_points = self._random_mask(series, generator)
         if masked_points.shape != series.shape[:2]:
             raise ValueError("masked_points must have shape [batch, time]")
+        masked_points = masked_points.bool()
         if not masked_points.any():
             raise ValueError("masked_points must select at least one time point")
-        masked = series.masked_scatter(
-            masked_points[..., None].expand_as(series),
-            0.1
-            * torch.randn(
-                int(masked_points.sum()) * series.shape[2],
-                device=series.device,
-                dtype=series.dtype,
-                generator=generator,
-            ),
-        )
-        output = self(masked)
         expanded_mask = masked_points[..., None].expand_as(series)
+        noise = 0.1 * torch.randn(
+            series.shape,
+            device=series.device,
+            dtype=series.dtype,
+            generator=generator,
+        )
+        masked = torch.where(expanded_mask, noise, series)
+        output = self(masked)
         reconstruction = F.mse_loss(
             output.reconstruction[expanded_mask], series[expanded_mask]
         )
@@ -350,5 +358,7 @@ class TimeRCD(nn.Module):
         state = torch.load(Path(path), map_location="cpu", weights_only=True)
         if isinstance(state, dict) and "model_state_dict" in state:
             state = state["model_state_dict"]
+        if not isinstance(state, dict):
+            raise TypeError("checkpoint does not contain a state dictionary")
         state = {key.removeprefix("module."): value for key, value in state.items()}
         self.load_state_dict(state, strict=strict)
