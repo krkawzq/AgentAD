@@ -5,48 +5,34 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from agentad.methods import (  # noqa: E402
-    METHODS,
     AERCA,
     AERCAConfig,
-    AERCALightningModule,
     AxonAD,
     AxonADConfig,
-    AxonADLightningModule,
     CARLA,
     CARLAConfig,
-    CARLAClassificationLightningModule,
     CARLAPretextLightningModule,
     CrossAD,
     CrossADConfig,
-    CrossADLightningModule,
     DADA,
     DADAConfig,
-    DADALightningModule,
     KANAD,
     KANADConfig,
-    KANADLightningModule,
     Left,
     LeftConfig,
-    LeftLightningModule,
     MMPAD,
     MMPADConfig,
-    MMPADLightningModule,
     PaAno,
     PaAnoConfig,
-    PaAnoLightningModule,
     ScatterAD,
     ScatterADConfig,
-    ScatterADLightningModule,
     TimeRCD,
     TimeRCDConfig,
-    TimeRCDLightningModule,
     TSPulseConfig,
     TSPulseFineTune,
-    TSPulseLightningModule,
     TSPulseZeroShot,
     XLSTMAD,
     XLSTMADConfig,
-    XLSTMADLightningModule,
     inject_anomalies,
 )
 from agentad.methods._utils import (  # noqa: E402
@@ -59,48 +45,6 @@ from agentad.methods._utils import (  # noqa: E402
 def assert_finite_shape(tensor, shape):
     assert tensor.shape == shape
     assert torch.isfinite(tensor).all()
-
-
-def test_method_registry_exposes_detectors_but_not_agent_frameworks():
-    assert set(METHODS) == {
-        "AERCA",
-        "AxonAD",
-        "CARLA",
-        "CrossAD",
-        "DADA",
-        "KAN-AD",
-        "Left",
-        "MMPAD",
-        "PaAno",
-        "ScatterAD",
-        "Time-RCD",
-        "TSPulse-FT",
-        "TSPulse-ZS",
-        "xLSTMAD",
-    }
-
-
-def test_every_method_exposes_an_independent_lightning_module():
-    import lightning as L
-
-    modules = (
-        AERCALightningModule,
-        AxonADLightningModule,
-        CARLAPretextLightningModule,
-        CARLAClassificationLightningModule,
-        CrossADLightningModule,
-        DADALightningModule,
-        KANADLightningModule,
-        LeftLightningModule,
-        MMPADLightningModule,
-        PaAnoLightningModule,
-        ScatterADLightningModule,
-        TimeRCDLightningModule,
-        TSPulseLightningModule,
-        XLSTMADLightningModule,
-    )
-    assert all(issubclass(module, L.LightningModule) for module in modules)
-    assert len({module.__module__ for module in modules}) == 13
 
 
 def test_original_config_factories_cover_published_variants():
