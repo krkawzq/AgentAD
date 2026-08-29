@@ -2,7 +2,7 @@
 
 from .config import CrossADConfig
 from .model import CrossAD, CrossADLoss, CrossADOutput
-from .train import CrossADLightningModule
+from .model import CrossADLightningModule
 
 __all__ = [
     "CrossAD",

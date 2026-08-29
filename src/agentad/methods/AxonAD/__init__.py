@@ -2,7 +2,7 @@
 
 from .config import AxonADConfig
 from .model import AxonAD, AxonADLoss, AxonADOutput
-from .train import AxonADLightningModule
+from .model import AxonADLightningModule
 
 __all__ = [
     "AxonAD",

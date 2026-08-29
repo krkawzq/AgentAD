@@ -2,7 +2,7 @@
 
 from .config import XLSTMADConfig
 from .model import XLSTMAD, XLSTMADLoss, XLSTMADOutput
-from .train import XLSTMADLightningModule
+from .model import XLSTMADLightningModule
 
 __all__ = [
     "XLSTMAD",

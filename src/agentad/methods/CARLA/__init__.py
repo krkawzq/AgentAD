@@ -2,7 +2,7 @@
 
 from .config import CARLAConfig
 from .model import CARLA, CARLALoss, CARLAOutput, inject_anomalies
-from .train import CARLAClassificationLightningModule, CARLAPretextLightningModule
+from .model import CARLAClassificationLightningModule, CARLAPretextLightningModule
 
 __all__ = [
     "CARLA",

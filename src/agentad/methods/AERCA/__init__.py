@@ -2,7 +2,7 @@
 
 from .config import AERCAConfig
 from .model import AERCA, AERCALoss, AERCAOutput
-from .train import AERCALightningModule
+from .model import AERCALightningModule
 
 __all__ = [
     "AERCA",

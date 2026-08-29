@@ -2,7 +2,7 @@
 
 from .config import KANADConfig
 from .model import KANAD, KANADLoss, KANADOutput
-from .train import KANADLightningModule
+from .model import KANADLightningModule
 
 __all__ = [
     "KANAD",

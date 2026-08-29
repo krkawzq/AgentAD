@@ -289,8 +289,7 @@ function SeriesBrowser({
   );
 }
 
-function FeatureBrowser({ overview, selected, onToggle }) {
-  const [query, setQuery] = useState("");
+function FeatureBrowser({ overview, selected, onToggle, query, onQueryChange }) {
   const matches = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     const features = overview?.features ?? [];
@@ -318,7 +317,7 @@ function FeatureBrowser({ overview, selected, onToggle }) {
         <input
           type="search"
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => onQueryChange(event.target.value)}
           placeholder="Search feature or metadata"
           autoComplete="off"
           spellCheck="false"
@@ -381,6 +380,8 @@ export function Sidebar({
   onLoadMore,
   selectedFeatures,
   onToggleFeature,
+  featureQuery,
+  onFeatureQueryChange,
 }) {
   return (
     <>
@@ -414,6 +415,8 @@ export function Sidebar({
             overview={overview}
             selected={selectedFeatures}
             onToggle={onToggleFeature}
+            query={featureQuery}
+            onQueryChange={onFeatureQueryChange}
           />
         )}
       </aside>

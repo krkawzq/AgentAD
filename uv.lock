@@ -36,16 +36,12 @@ name = "agentad"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "granite-tsfm" },
-    { name = "lightning" },
     { name = "numba" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "pyarrow" },
     { name = "scipy" },
     { name = "statsmodels" },
-    { name = "torch" },
-    { name = "xlstm" },
     { name = "zarr" },
 ]
 
@@ -53,6 +49,16 @@ dependencies = [
 download = [
     { name = "gdown" },
     { name = "requests" },
+]
+methods = [
+    { name = "lightning" },
+    { name = "torch" },
+]
+tspulse = [
+    { name = "granite-tsfm" },
+]
+xlstmad = [
+    { name = "xlstm" },
 ]
 
 [package.dev-dependencies]
@@ -64,8 +70,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "gdown", marker = "extra == 'download'" },
-    { name = "granite-tsfm", specifier = ">=0.3.8" },
-    { name = "lightning", specifier = ">=2.6.5,<3" },
+    { name = "granite-tsfm", marker = "extra == 'tspulse'", specifier = ">=0.3.8" },
+    { name = "lightning", marker = "extra == 'methods'", specifier = ">=2.6.5,<3" },
     { name = "numba", specifier = ">=0.67,<1" },
     { name = "numpy", specifier = ">=2.5.2,<3" },
     { name = "pandas", specifier = ">=3.0.5,<4" },
@@ -73,11 +79,11 @@ requires-dist = [
     { name = "requests", marker = "extra == 'download'" },
     { name = "scipy", specifier = ">=1.18.1,<2" },
     { name = "statsmodels", specifier = ">=0.15.0,<1" },
-    { name = "torch", specifier = ">=2.11,<3" },
-    { name = "xlstm", specifier = "==2.0.5" },
+    { name = "torch", marker = "extra == 'methods'", specifier = ">=2.11,<3" },
+    { name = "xlstm", marker = "extra == 'xlstmad'", specifier = "==2.0.5" },
     { name = "zarr", specifier = ">=3.3.0" },
 ]
-provides-extras = ["download"]
+provides-extras = ["download", "methods", "xlstmad", "tspulse"]
 
 [package.metadata.requires-dev]
 dev = [

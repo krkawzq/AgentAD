@@ -8,7 +8,7 @@ from .model import (
     TSPulseOutput,
     TSPulseZeroShot,
 )
-from .train import TSPulseLightningModule
+from .model import TSPulseLightningModule
 
 __all__ = [
     "TSPulse",

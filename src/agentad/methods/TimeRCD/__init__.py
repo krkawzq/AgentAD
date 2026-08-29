@@ -2,7 +2,7 @@
 
 from .config import TimeRCDConfig
 from .model import TimeRCD, TimeRCDLoss, TimeRCDOutput
-from .train import TimeRCDLightningModule
+from .model import TimeRCDLightningModule
 
 __all__ = [
     "TimeRCD",

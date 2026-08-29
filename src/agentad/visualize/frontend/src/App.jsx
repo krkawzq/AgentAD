@@ -8,7 +8,9 @@ import {
   Menu,
   MousePointer2,
   PanelRight,
+  Plus,
   Rows3,
+  X,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -16,6 +18,8 @@ import {
 import {
   DEFAULT_VIEW_OPTIONS,
   clampPanelWidth,
+  parseTabPreferences,
+  serializeTabPreferences,
   zoomWindow,
 } from "../../static/core.js";
 import { api, ApiError } from "./api.js";
@@ -30,6 +34,231 @@ const SIDEBAR_WIDTH_KEY = "agentad-visualizer:sidebar-width";
 const INSPECTOR_DEFAULT_WIDTH = 320;
 const INSPECTOR_MIN_WIDTH = 260;
 const INSPECTOR_MAX_WIDTH = 560;
+const LAST_TAB_PREFERENCES_KEY = "agentad-visualizer:last-tab-preferences";
+
+const TAB_FIELDS = [
+  "items",
+  "itemsTotal",
+  "itemsLoading",
+  "seriesQuery",
+  "debouncedQuery",
+  "featureQuery",
+  "seriesIndex",
+  "seriesPoints",
+  "selectedFeatures",
+  "viewOptions",
+  "viewport",
+  "committedViewport",
+  "data",
+  "dataLoading",
+  "dataError",
+  "inspectorOpen",
+  "inspectorWidth",
+];
+
+function readLastTabPreferences() {
+  try {
+    const stored = window.localStorage.getItem(LAST_TAB_PREFERENCES_KEY);
+    const preferences = parseTabPreferences(stored);
+    if (!stored) preferences.inspectorOpen = window.innerWidth > 1240;
+    return preferences;
+  } catch {
+    const preferences = parseTabPreferences(null);
+    preferences.inspectorOpen = window.innerWidth > 1240;
+    return preferences;
+  }
+}
+
+function createDatasetTab(overview, preferences) {
+  const normalizations = overview.normalizations ?? [];
+  const normalization = normalizations.some((item) => item.id === preferences.normalization)
+    ? preferences.normalization
+    : (normalizations[0]?.id ?? DEFAULT_VIEW_OPTIONS.normalization);
+  const labels = overview.binary_labels ?? [];
+  const label = preferences.labelName
+    ? labels.find((item) => item.name === preferences.labelName)
+    : null;
+  const path = overview.path ?? null;
+  const source = overview.source ?? path ?? "initial";
+  const title = path?.split("/").at(-1) ?? overview.title ?? "In-memory collection";
+  return {
+    source,
+    path,
+    title,
+    overview,
+    items: [],
+    itemsTotal: 0,
+    itemsLoading: false,
+    seriesQuery: "",
+    debouncedQuery: "",
+    featureQuery: "",
+    seriesIndex: null,
+    seriesPoints: 0,
+    selectedFeatures: overview.features
+      .slice(0, Math.min(6, overview.limits?.max_selected_features ?? 128))
+      .map((feature) => feature.index),
+    viewOptions: {
+      normalization,
+      scope: preferences.scope,
+      labelIndex: label?.index ?? null,
+      mode: preferences.mode,
+      layout: preferences.layout,
+      transform: { ...preferences.transform },
+    },
+    viewport: [0, 0],
+    committedViewport: [0, 0],
+    data: null,
+    dataLoading: false,
+    dataError: "",
+    inspectorOpen: preferences.inspectorOpen,
+    inspectorWidth: preferences.inspectorWidth,
+  };
+}
+
+function preferencesFromTab(tab) {
+  const labelName = (tab.overview.binary_labels ?? []).find(
+    (label) => label.index === tab.viewOptions.labelIndex,
+  )?.name ?? null;
+  return {
+    ...tab.viewOptions,
+    labelName,
+    inspectorOpen: tab.inspectorOpen,
+    inspectorWidth: tab.inspectorWidth,
+  };
+}
+
+function useDatasetTabs() {
+  const [tabs, setTabs] = useState([]);
+  const [activeSource, setActiveSource] = useState(null);
+  const activeDataset = useMemo(
+    () => tabs.find((tab) => tab.source === activeSource) ?? null,
+    [activeSource, tabs],
+  );
+  const lastPreferencesRef = useRef(readLastTabPreferences());
+  if (activeDataset) lastPreferencesRef.current = preferencesFromTab(activeDataset);
+
+  const openTab = useCallback((overview) => {
+    const source = overview.source ?? overview.path ?? "initial";
+    setTabs((current) =>
+      current.some((tab) => tab.source === source)
+        ? current
+        : [...current, createDatasetTab(overview, lastPreferencesRef.current)],
+    );
+    setActiveSource(source);
+  }, []);
+
+  const setters = useMemo(() => {
+    const entries = TAB_FIELDS.map((field) => [
+      `set${field[0].toUpperCase()}${field.slice(1)}`,
+      (value) => {
+        const source = activeSource;
+        if (source == null) return;
+        setTabs((current) =>
+          current.map((tab) => {
+            if (tab.source !== source) return tab;
+            const nextValue = typeof value === "function" ? value(tab[field]) : value;
+            return Object.is(nextValue, tab[field]) ? tab : { ...tab, [field]: nextValue };
+          }),
+        );
+      },
+    ]);
+    return Object.fromEntries(entries);
+  }, [activeSource]);
+
+  const closeTab = useCallback((source) => {
+    const index = tabs.findIndex((tab) => tab.source === source);
+    if (index < 0) return;
+    const remaining = tabs.filter((tab) => tab.source !== source);
+    setTabs(remaining);
+    if (activeSource === source) {
+      setActiveSource(remaining[Math.min(index, remaining.length - 1)]?.source ?? null);
+    }
+  }, [activeSource, tabs]);
+
+  useEffect(() => {
+    if (!activeDataset) return undefined;
+    const preferences = preferencesFromTab(activeDataset);
+    const timer = window.setTimeout(() => {
+      try {
+        window.localStorage.setItem(
+          LAST_TAB_PREFERENCES_KEY,
+          serializeTabPreferences(preferences),
+        );
+      } catch {
+        // Storage can be unavailable in privacy-restricted browser contexts.
+      }
+    }, 160);
+    return () => window.clearTimeout(timer);
+  }, [activeDataset]);
+
+  useEffect(() => {
+    const flush = () => {
+      try {
+        window.localStorage.setItem(
+          LAST_TAB_PREFERENCES_KEY,
+          serializeTabPreferences(lastPreferencesRef.current),
+        );
+      } catch {
+        // Storage can be unavailable in privacy-restricted browser contexts.
+      }
+    };
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, []);
+
+  return {
+    tabs,
+    activeSource,
+    activeDataset,
+    setActiveSource,
+    openTab,
+    closeTab,
+    ...setters,
+  };
+}
+
+function DatasetTabs({ tabs, activeSource, onSelect, onClose, onNew }) {
+  return (
+    <div className="dataset-tabs" role="tablist" aria-label="Open datasets">
+      <div className="dataset-tab-list">
+        {tabs.map((tab) => (
+          <div
+            className={`dataset-tab ${tab.source === activeSource ? "is-active" : ""}`}
+            role="tab"
+            aria-selected={tab.source === activeSource}
+            tabIndex={tab.source === activeSource ? 0 : -1}
+            title={tab.path ?? tab.title}
+            key={tab.source}
+            onClick={() => onSelect(tab.source)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onSelect(tab.source);
+              }
+            }}
+          >
+            <span>{tab.title}</span>
+            <button
+              type="button"
+              aria-label={`Close ${tab.title}`}
+              title="Close dataset"
+              onClick={(event) => {
+                event.stopPropagation();
+                onClose(tab.source);
+              }}
+            >
+              <X size={12} aria-hidden="true" />
+            </button>
+          </div>
+        ))}
+      </div>
+      <button type="button" className="dataset-tab-new" onClick={onNew} title="Open dataset">
+        <Plus size={14} aria-hidden="true" />
+        <span>Open</span>
+      </button>
+    </div>
+  );
+}
 
 function Header({ overview, activePath, inspectorOpen, onMenu, onInspector, onHelp }) {
   return (
@@ -339,33 +568,58 @@ function StatusBar({ data, viewport, totalPoints, loading, notice }) {
 }
 
 export function App() {
-  const [overview, setOverview] = useState(null);
-  const [activePath, setActivePath] = useState(null);
+  const tabState = useDatasetTabs();
+  const {
+    tabs,
+    activeSource,
+    activeDataset,
+    setActiveSource,
+    openTab,
+    closeTab,
+    setItems,
+    setItemsTotal,
+    setItemsLoading,
+    setSeriesQuery,
+    setDebouncedQuery,
+    setSeriesIndex,
+    setSeriesPoints,
+    setSelectedFeatures,
+    setViewOptions,
+    setViewport,
+    setCommittedViewport,
+    setData,
+    setDataLoading,
+    setDataError,
+    setInspectorOpen,
+    setInspectorWidth,
+    setFeatureQuery,
+  } = tabState;
+  const overview = activeDataset?.overview ?? null;
+  const activePath = activeDataset?.path ?? null;
+  const items = activeDataset?.items ?? [];
+  const itemsTotal = activeDataset?.itemsTotal ?? 0;
+  const itemsLoading = activeDataset?.itemsLoading ?? false;
+  const seriesQuery = activeDataset?.seriesQuery ?? "";
+  const debouncedQuery = activeDataset?.debouncedQuery ?? "";
+  const featureQuery = activeDataset?.featureQuery ?? "";
+  const seriesIndex = activeDataset?.seriesIndex ?? null;
+  const seriesPoints = activeDataset?.seriesPoints ?? 0;
+  const selectedFeatures = activeDataset?.selectedFeatures ?? [];
+  const viewOptions = activeDataset?.viewOptions ?? DEFAULT_VIEW_OPTIONS;
+  const { normalization, scope, labelIndex, mode, layout, transform } = viewOptions;
+  const viewport = activeDataset?.viewport ?? [0, 0];
+  const committedViewport = activeDataset?.committedViewport ?? [0, 0];
+  const data = activeDataset?.data ?? null;
+  const dataLoading = activeDataset?.dataLoading ?? false;
+  const dataError = activeDataset?.dataError ?? "";
+  const inspectorOpen = activeDataset?.inspectorOpen ?? false;
+  const inspectorWidth = activeDataset?.inspectorWidth ?? INSPECTOR_DEFAULT_WIDTH;
   const [openingPath, setOpeningPath] = useState(null);
   const [activeTab, setActiveTab] = useState("sources");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [inspectorOpen, setInspectorOpen] = useState(() => window.innerWidth > 1240);
-  const [items, setItems] = useState([]);
-  const [itemsTotal, setItemsTotal] = useState(0);
-  const [itemsLoading, setItemsLoading] = useState(false);
-  const [seriesQuery, setSeriesQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [seriesIndex, setSeriesIndex] = useState(null);
-  const [seriesPoints, setSeriesPoints] = useState(0);
-  const [selectedFeatures, setSelectedFeatures] = useState([]);
-  const [viewOptions, setViewOptions] = useState(() => ({
-    ...DEFAULT_VIEW_OPTIONS,
-    transform: { ...DEFAULT_VIEW_OPTIONS.transform },
-  }));
-  const { normalization, scope, labelIndex, mode, layout, transform } = viewOptions;
-  const [viewport, setViewport] = useState([0, 0]);
-  const [committedViewport, setCommittedViewport] = useState([0, 0]);
-  const [data, setData] = useState(null);
-  const [dataLoading, setDataLoading] = useState(false);
-  const [dataError, setDataError] = useState("");
   const [booting, setBooting] = useState(true);
+  const [bootError, setBootError] = useState("");
   const [notice, setNotice] = useState("");
-  const [inspectorWidth, setInspectorWidth] = useState(INSPECTOR_DEFAULT_WIDTH);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
       const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_KEY));
@@ -380,34 +634,33 @@ export function App() {
     }
   });
   const noticeTimer = useRef(null);
-  const itemsRequest = useRef(null);
   const workspaceRef = useRef(null);
 
   const setNormalization = useCallback((value) => {
     setViewOptions((current) => ({ ...current, normalization: value }));
-  }, []);
+  }, [setViewOptions]);
   const setScope = useCallback((value) => {
     setViewOptions((current) => ({ ...current, scope: value }));
-  }, []);
+  }, [setViewOptions]);
   const setMode = useCallback((value) => {
     setViewOptions((current) => ({ ...current, mode: value }));
-  }, []);
+  }, [setViewOptions]);
   const setLayout = useCallback((value) => {
     setViewOptions((current) => ({ ...current, layout: value }));
-  }, []);
+  }, [setViewOptions]);
   const setTransform = useCallback((value) => {
     setViewOptions((current) => ({
       ...current,
       transform: typeof value === "function" ? value(current.transform) : value,
     }));
-  }, []);
+  }, [setViewOptions]);
   const setLabelIndex = useCallback((value) => {
     const label = (overview?.binary_labels ?? []).find((item) => item.index === value);
     setViewOptions((current) => ({
       ...current,
       labelIndex: label?.index ?? null,
     }));
-  }, [overview]);
+  }, [overview, setViewOptions]);
 
   useEffect(() => {
     try {
@@ -424,38 +677,10 @@ export function App() {
   }, []);
 
   const installOverview = useCallback((next) => {
-    setOverview(next);
-    setActivePath(next.path ?? null);
-    setSeriesQuery("");
-    setDebouncedQuery("");
-    setItems([]);
-    setItemsTotal(0);
-    setSeriesIndex(null);
-    setSeriesPoints(0);
-    setViewport([0, 0]);
-    setCommittedViewport([0, 0]);
-    setData(null);
-    setDataError("");
-    setSelectedFeatures(
-      next.features.slice(0, Math.min(6, next.limits?.max_selected_features ?? 128)).map((feature) => feature.index),
-    );
-    setViewOptions((current) => {
-      const normalizations = next.normalizations ?? [];
-      const normalization = normalizations.some(
-        (item) => item.id === DEFAULT_VIEW_OPTIONS.normalization,
-      )
-        ? DEFAULT_VIEW_OPTIONS.normalization
-        : (normalizations[0]?.id ?? DEFAULT_VIEW_OPTIONS.normalization);
-      return {
-        ...current,
-        normalization,
-        scope: DEFAULT_VIEW_OPTIONS.scope,
-        labelIndex: DEFAULT_VIEW_OPTIONS.labelIndex,
-        transform: { ...DEFAULT_VIEW_OPTIONS.transform },
-      };
-    });
+    setBootError("");
+    openTab(next);
     setActiveTab("series");
-  }, []);
+  }, [openTab]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -463,7 +688,7 @@ export function App() {
       .then(installOverview)
       .catch((error) => {
         if (!(error instanceof ApiError && error.status === 409) && error.name !== "AbortError") {
-          setDataError(error.message);
+          setBootError(error.message);
         }
       })
       .finally(() => {
@@ -479,16 +704,18 @@ export function App() {
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(seriesQuery.trim()), 220);
     return () => window.clearTimeout(timer);
-  }, [seriesQuery]);
+  }, [seriesQuery, setDebouncedQuery]);
 
   const fetchItems = useCallback((append = false) => {
-    if (!overview) return;
-    itemsRequest.current?.abort();
+    if (!overview || !activeSource) return null;
     const controller = new AbortController();
-    itemsRequest.current = controller;
     const offset = append ? items.length : 0;
     setItemsLoading(true);
-    api("/api/items", { query: debouncedQuery, offset, limit: 80 }, controller.signal)
+    api(
+      "/api/items",
+      { source: activeSource, query: debouncedQuery, offset, limit: 80 },
+      controller.signal,
+    )
       .then((payload) => {
         setItems((current) => (append ? [...current, ...payload.items] : payload.items));
         setItemsTotal(payload.total);
@@ -499,11 +726,16 @@ export function App() {
       .finally(() => {
         if (!controller.signal.aborted) setItemsLoading(false);
       });
-  }, [debouncedQuery, items.length, notify, overview]);
+    return controller;
+  }, [activeSource, debouncedQuery, items.length, notify, overview, setItems, setItemsLoading, setItemsTotal]);
 
   useEffect(() => {
-    fetchItems(false);
-  }, [debouncedQuery, overview]); // eslint-disable-line react-hooks/exhaustive-deps
+    const controller = fetchItems(false);
+    return () => {
+      controller?.abort();
+      setItemsLoading(false);
+    };
+  }, [activeSource, debouncedQuery]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectSeries = useCallback((item) => {
     setSeriesIndex(item.index);
@@ -514,7 +746,7 @@ export function App() {
     setData(null);
     setDataError("");
     setSidebarOpen(false);
-  }, []);
+  }, [setCommittedViewport, setData, setDataError, setSeriesIndex, setSeriesPoints, setViewport]);
 
   useEffect(() => {
     if (seriesIndex == null && items.length > 0 && !debouncedQuery) {
@@ -523,7 +755,9 @@ export function App() {
   }, [debouncedQuery, items, selectSeries, seriesIndex]);
 
   useEffect(() => {
-    if (!overview || seriesIndex == null || !selectedFeatures.length) return undefined;
+    if (!overview || !activeSource || seriesIndex == null || !selectedFeatures.length) {
+      return undefined;
+    }
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       const visibleSpan = Math.max(1, committedViewport[1] - committedViewport[0]);
@@ -548,6 +782,7 @@ export function App() {
       api(
         "/api/data",
         {
+          source: activeSource,
           series: seriesIndex,
           features: selectedFeatures.join(","),
           normalization,
@@ -570,12 +805,12 @@ export function App() {
     return () => {
       window.clearTimeout(timer);
       controller.abort();
+      setDataLoading(false);
     };
-  }, [committedViewport, labelIndex, normalization, overview, scope, selectedFeatures, seriesIndex, seriesPoints]);
+  }, [activeSource, committedViewport, labelIndex, normalization, overview, scope, selectedFeatures, seriesIndex, seriesPoints, setData, setDataError, setDataLoading]);
 
   const openSource = useCallback((path) => {
     setOpeningPath(path);
-    setDataError("");
     api("/api/open", { path })
       .then((payload) => {
         installOverview(payload);
@@ -586,10 +821,19 @@ export function App() {
       .finally(() => setOpeningPath(null));
   }, [installOverview, notify]);
 
+  const closeDataset = useCallback((source) => {
+    closeTab(source);
+    api("/api/close", { source }).catch((error) => {
+      if (!(error instanceof ApiError && error.status === 409)) {
+        notify(`Could not release dataset: ${error.message}`);
+      }
+    });
+  }, [closeTab, notify]);
+
   const handleViewport = useCallback((next, commit) => {
     setViewport(next);
     if (commit) setCommittedViewport(next);
-  }, []);
+  }, [setCommittedViewport, setViewport]);
 
   const toggleFeature = useCallback((featureIndex) => {
     setSelectedFeatures((current) => {
@@ -607,7 +851,7 @@ export function App() {
       }
       return [...current, featureIndex];
     });
-  }, [notify, overview]);
+  }, [notify, overview, setSelectedFeatures]);
 
   const selectedFeatureRecords = useMemo(() => {
     const records = new Map((overview?.features ?? []).map((feature) => [feature.index, feature]));
@@ -622,7 +866,7 @@ export function App() {
       [next[position], next[nextPosition]] = [next[nextPosition], next[position]];
       return next;
     });
-  }, []);
+  }, [setSelectedFeatures]);
 
   const zoom = (factor) => {
     const center = (viewport[0] + viewport[1]) / 2;
@@ -669,6 +913,8 @@ export function App() {
           onLoadMore={() => fetchItems(true)}
           selectedFeatures={selectedFeatures}
           onToggleFeature={toggleFeature}
+          featureQuery={featureQuery}
+          onFeatureQueryChange={setFeatureQuery}
         />
         <SidebarResizer
           width={sidebarWidth}
@@ -676,6 +922,16 @@ export function App() {
           onResize={setSidebarWidth}
         />
         <main className="editor" id="editor-main" tabIndex="-1">
+          <DatasetTabs
+            tabs={tabs}
+            activeSource={activeSource}
+            onSelect={setActiveSource}
+            onClose={closeDataset}
+            onNew={() => {
+              setActiveTab("sources");
+              setSidebarOpen(true);
+            }}
+          />
           <Toolbar
             mode={mode}
             layout={layout}
@@ -704,7 +960,7 @@ export function App() {
             ) : (
               <EmptyState
                 overview={overview}
-                error={dataError}
+                error={dataError || bootError}
                 loading={booting || dataLoading || openingPath !== null}
                 onBrowse={() => {
                   setActiveTab("sources");

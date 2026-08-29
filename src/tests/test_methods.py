@@ -20,7 +20,6 @@ from agentad.methods import (  # noqa: E402
     KANADConfig,
     Left,
     LeftConfig,
-    MMPAD,
     MMPADConfig,
     PaAno,
     PaAnoConfig,
@@ -33,8 +32,11 @@ from agentad.methods import (  # noqa: E402
     TSPulseZeroShot,
     XLSTMAD,
     XLSTMADConfig,
+    build_reference,
     inject_anomalies,
+    mmpad_score,
 )
+from agentad.methods.MMPAD.algorithm import _resolved_length  # noqa: E402
 from agentad.methods._utils import (  # noqa: E402
     evaluation_mode,
     overlap_average,
@@ -258,15 +260,15 @@ def test_carla_pretext_neighbor_positives():
 
 
 def test_mmpad_infers_subsequence_length_from_autocorrelation():
-    model = MMPAD(MMPADConfig())
+    config = MMPADConfig()
     t = torch.arange(1500, dtype=torch.float64)
     # A decaying periodic signal makes the first ACF peak the strongest one.
     signal = torch.sin(2 * torch.pi * t / 128) * torch.exp(-t / 2000)
     series = signal.unsqueeze(0).unsqueeze(-1).float()
-    assert model._resolved_length(series) == 128
+    assert _resolved_length(config, series) == 128
     # Series shorter than the original's 401-point ACF window take the
     # fallback period, clamped to the series length.
-    assert model._resolved_length(torch.randn(1, 300, 1)) == 125
+    assert _resolved_length(config, torch.randn(1, 300, 1)) == 125
 
 
 def test_left_losses_prototype_update_and_score():
@@ -309,18 +311,16 @@ def test_left_losses_prototype_update_and_score():
 
 
 def test_mmpad_self_join_and_fitted_reference_scores():
-    model = MMPAD(
-        MMPADConfig(
-            subsequence_length=4,
-            dimensions=1,
-            neighbors=1,
-            query_chunk_size=3,
-        )
+    config = MMPADConfig(
+        subsequence_length=4,
+        dimensions=1,
+        neighbors=1,
+        query_chunk_size=3,
     )
     series = torch.randn(2, 16, 2)
-    assert_finite_shape(model.score(series), (2, 16))
-    model.fit(torch.randn(1, 12, 2))
-    assert_finite_shape(model.score(series), (2, 16))
+    assert_finite_shape(mmpad_score(series, config), (2, 16))
+    reference = build_reference(torch.randn(1, 12, 2), config)
+    assert_finite_shape(mmpad_score(series, config, reference), (2, 16))
 
 
 def test_tspulse_finetune_loss_and_zero_shot_score():
@@ -591,12 +591,12 @@ def test_mmpad_flat_channels_are_excluded_like_the_original():
     series = torch.randn(1, 16, 2, generator=generator)
     flat = series.clone()
     flat[..., 1] = 5.0
-    model = MMPAD(
-        MMPADConfig(subsequence_length=4, dimensions=1, neighbors=1),
-    )
+    config = MMPADConfig(subsequence_length=4, dimensions=1, neighbors=1)
     # A flat channel is invalid and must not contribute a zero correlation;
     # the score equals the single-varying-channel score.
-    assert torch.allclose(model.score(flat), model.score(series[..., :1]))
+    assert torch.allclose(
+        mmpad_score(flat, config), mmpad_score(series[..., :1], config)
+    )
 
 
 def test_scatterad_losses_target_update_and_score():

@@ -20,7 +20,7 @@ from .CrossAD import CrossAD, CrossADConfig, CrossADLightningModule, CrossADLoss
 from .DADA import DADA, DADAConfig, DADALightningModule, DADAOutput
 from .KanAD import KANAD, KANADConfig, KANADLightningModule, KANADLoss, KANADOutput
 from .Left import Left, LeftConfig, LeftLightningModule, LeftLoss, LeftOutput
-from .MMPAD import MMPAD, MMPADConfig, MMPADLightningModule
+from .MMPAD import MMPADConfig, MMPADReference, build_reference, score as mmpad_score
 from .PaAno import PaAno, PaAnoConfig, PaAnoLightningModule, PaAnoLoss, PatchEncoder
 from .ScatterAD import (
     ScatterAD,
@@ -49,7 +49,6 @@ METHODS = {
     "DADA": DADA,
     "KAN-AD": KANAD,
     "Left": Left,
-    "MMPAD": MMPAD,
     "PaAno": PaAno,
     "ScatterAD": ScatterAD,
     "Time-RCD": TimeRCD,
@@ -95,9 +94,8 @@ __all__ = [
     "LeftLightningModule",
     "LeftLoss",
     "LeftOutput",
-    "MMPAD",
     "MMPADConfig",
-    "MMPADLightningModule",
+    "MMPADReference",
     "PaAno",
     "PaAnoConfig",
     "PaAnoLightningModule",
@@ -125,5 +123,7 @@ __all__ = [
     "XLSTMADLightningModule",
     "XLSTMADLoss",
     "XLSTMADOutput",
+    "build_reference",
     "inject_anomalies",
+    "mmpad_score",
 ]

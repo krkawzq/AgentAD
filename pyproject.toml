@@ -16,16 +16,12 @@ license-files = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "granite-tsfm>=0.3.8",
-    "lightning>=2.6.5,<3",
     "numba>=0.67,<1",
     "numpy>=2.5.2,<3",
     "pandas>=3.0.5,<4",
     "pyarrow>=25.0.1,<26",
     "scipy>=1.18.1,<2",
     "statsmodels>=0.15.0,<1",
-    "torch>=2.11,<3",
-    "xlstm==2.0.5",
     "zarr>=3.3.0",
 ]
 
@@ -33,6 +29,18 @@ dependencies = [
 download = [
     "gdown",
     "requests",
+]
+# 深度学习方法的通用训练栈
+methods = [
+    "lightning>=2.6.5,<3",
+    "torch>=2.11,<3",
+]
+# 单算法私有依赖，按需安装：uv sync --extra methods --extra xlstmad --extra tspulse
+xlstmad = [
+    "xlstm==2.0.5",
+]
+tspulse = [
+    "granite-tsfm>=0.3.8",
 ]
 
 [[tool.uv.index]]
