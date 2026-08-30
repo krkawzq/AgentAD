@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 from typing import Iterator
 
 import pandas as pd
 
 if __package__:
-    from .common import DatasetWriter, SplitData, jsonable, staged_source_directory
+    from .common import DatasetWriter, SplitData, jsonable, staged_source_directory  # type: ignore[import-not-found]
 else:
     from common import DatasetWriter, SplitData, jsonable, staged_source_directory
 
@@ -132,4 +131,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

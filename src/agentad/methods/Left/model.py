@@ -11,7 +11,7 @@ from torch.nn import functional as F
 from collections.abc import Mapping
 from typing import Callable
 import lightning as L
-from torch import Tensor
+from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig
 
 from .._utils import evaluation_mode, sinusoidal_encoding, validate_series
 from .config import LeftConfig
@@ -19,6 +19,10 @@ from .._utils import ValidationEarlyStopping
 
 
 class _SpectralBands(nn.Module):
+    cutoffs: Tensor
+    order: Tensor
+    inverse_order: Tensor
+
     def __init__(self, config: LeftConfig) -> None:
         super().__init__()
         self.factors = config.scale_factors
@@ -368,6 +372,10 @@ class LeftLoss:
 
 class Left(nn.Module):
     """Left detector with learnable spectral scales and deep multi-view fusion."""
+
+    positions: Tensor
+    scale_mask: Tensor
+    training_steps: Tensor
 
     def __init__(self, config: LeftConfig) -> None:
         super().__init__()
@@ -743,6 +751,7 @@ class LeftLightningModule(ValidationEarlyStopping, L.LightningModule):
 
     @staticmethod
     def _series(batch: object) -> Tensor:
+        series: Tensor | None
         if isinstance(batch, Tensor):
             series = batch
         elif isinstance(batch, Mapping):
@@ -815,12 +824,12 @@ class LeftLightningModule(ValidationEarlyStopping, L.LightningModule):
 
         return scale
 
-    def configure_optimizers(self) -> dict[str, object]:
+    def configure_optimizers(self) -> OptimizerLRSchedulerConfig:
         optimizer = torch.optim.Adam(
             self.parameters(), lr=self.config.learning_rate
         )
         if self.config.learning_rate_schedule == "type1":
-            scheduler: object = torch.optim.lr_scheduler.LambdaLR(
+            scheduler = torch.optim.lr_scheduler.LambdaLR(
                 optimizer, self._type1_schedule()
             )
         else:

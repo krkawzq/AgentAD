@@ -9,7 +9,6 @@ Usage:
 
 import argparse
 import ast
-import sys
 from pathlib import Path
 
 import requests
@@ -29,7 +28,7 @@ def download_file(session: requests.Session, url: str, save_path: Path) -> bool:
                 f.write(chunk)
         return True
     except requests.HTTPError as e:
-        if e.response.status_code == 404:
+        if e.response is not None and e.response.status_code == 404:
             print(f"  skip (404): {save_path.name}")
         else:
             print(f"  fail: {save_path.name}: {e}")
@@ -79,4 +78,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

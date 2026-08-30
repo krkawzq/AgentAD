@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import filecmp
 import re
-import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -13,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 if __package__:
-    from .common import (
+    from .common import (  # type: ignore[import-not-found]
         DatasetWriter,
         SplitData,
         split_interval_annotations,
@@ -256,4 +255,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

@@ -11,7 +11,7 @@ from torch.nn import functional as F
 from collections.abc import Mapping
 from typing import Any
 import lightning as L
-from torch import Tensor
+from lightning.pytorch.core.optimizer import LightningOptimizer
 
 from .._utils import evaluation_mode, validate_series
 from .config import ScatterADConfig
@@ -245,6 +245,7 @@ class ScatterADLightningModule(L.LightningModule):
         return self.model(series)
 
     def _series(self, batch: object) -> Tensor:
+        series: Tensor | None
         if isinstance(batch, Tensor):
             series = batch
         elif isinstance(batch, Mapping):
@@ -294,7 +295,7 @@ class ScatterADLightningModule(L.LightningModule):
         self,
         epoch: int,
         batch_idx: int,
-        optimizer: torch.optim.Optimizer,
+        optimizer: torch.optim.Optimizer | LightningOptimizer,
         optimizer_closure: Any | None = None,
     ) -> None:
         optimizer.step(closure=optimizer_closure)

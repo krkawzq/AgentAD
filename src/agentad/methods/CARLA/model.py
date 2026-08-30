@@ -9,11 +9,10 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 from collections.abc import Mapping
 import lightning as L
-from torch import Tensor
+from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig
 
 from .._utils import evaluation_mode, overlap_average, sliding_windows, validate_series
 from .config import CARLAConfig
-from .._utils import evaluation_mode
 
 
 def inject_anomalies(
@@ -205,6 +204,9 @@ class CARLALoss:
 
 class CARLA(nn.Module):
     """CARLA pretext projection and self-supervised clustering stages."""
+
+    pretext_margin: Tensor
+    normal_clusters: Tensor
 
     def __init__(self, config: CARLAConfig) -> None:
         super().__init__()
@@ -577,7 +579,7 @@ class CARLAPretextLightningModule(L.LightningModule):
         # so the first batch of each epoch skips the margin adjustment.
         self._previous_loss = None
 
-    def configure_optimizers(self) -> dict[str, object]:
+    def configure_optimizers(self) -> OptimizerLRSchedulerConfig:
         optimizer = torch.optim.Adam(
             self.parameters(), lr=self.config.pretext_learning_rate
         )
@@ -765,7 +767,7 @@ class CARLAClassificationLightningModule(L.LightningModule):
         # The original saves its normal_label from a misspelled variable and
         # therefore always reloads the initial value (zero); wiring the best
         # epoch's majority cluster implements its evident intent.
-        if self._best_state is not None:
+        if self._best_state is not None and self._best_majority is not None:
             self.load_state_dict(self._best_state)
             self.model.normal_clusters.copy_(
                 self._best_majority.to(self.model.normal_clusters.device)

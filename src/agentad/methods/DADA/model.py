@@ -14,7 +14,6 @@ from torch.autograd import Function
 from torch.nn import functional as F
 from collections.abc import Mapping
 import lightning as L
-from torch import Tensor
 
 from .._utils import evaluation_mode, validate_series
 from .config import DADAConfig
@@ -65,22 +64,31 @@ class _ResidualConvBlock(nn.Module):
         return x + residual
 
 
+class _FeatureExtractor(nn.Module):
+    """Typed container keeping the released checkpoint's `feature_extractor.net` keys."""
+
+    def __init__(self, net: nn.Sequential) -> None:
+        super().__init__()
+        self.net = net
+
+
 class _DilatedEncoder(nn.Module):
     def __init__(
         self, hidden_dim: int, output_dim: int, depth: int, dropout: float
     ) -> None:
         super().__init__()
         widths = [hidden_dim] * depth + [output_dim]
-        self.feature_extractor = nn.Module()
-        self.feature_extractor.net = nn.Sequential(
-            *[
-                _ResidualConvBlock(
-                    hidden_dim if index == 0 else widths[index - 1],
-                    width,
-                    final=index == len(widths) - 1,
-                )
-                for index, width in enumerate(widths)
-            ]
+        self.feature_extractor = _FeatureExtractor(
+            nn.Sequential(
+                *[
+                    _ResidualConvBlock(
+                        hidden_dim if index == 0 else widths[index - 1],
+                        width,
+                        final=index == len(widths) - 1,
+                    )
+                    for index, width in enumerate(widths)
+                ]
+            )
         )
         self.repr_dropout = nn.Dropout(dropout)
 
@@ -146,20 +154,25 @@ class _AdaptiveBottleneck(nn.Module):
 
     def _gates(self, x: Tensor) -> tuple[Tensor, Tensor]:
         clean_logits = x @ self.w_gate
+        noisy_logits: Tensor | None = None
+        noise_std: Tensor | None = None
         if self.noisy_gating and self.training:
             noise_std = F.softplus(x @ self.w_noise) + 1e-2
             noisy_logits = clean_logits + torch.randn_like(clean_logits) * noise_std
             logits = noisy_logits
         else:
             logits = clean_logits
-            noisy_logits = noise_std = None
         top_count = min(self.k + 1, logits.shape[1])
         top_values, top_indices = logits.topk(top_count, dim=1)
         values = top_values[:, : self.k]
         indices = top_indices[:, : self.k]
         weights = values.softmax(dim=1)
         gates = torch.zeros_like(logits).scatter(1, indices, weights)
-        if noisy_logits is not None and self.k < logits.shape[1]:
+        if (
+            noisy_logits is not None
+            and noise_std is not None
+            and self.k < logits.shape[1]
+        ):
             threshold_in = top_values[:, self.k : self.k + 1]
             threshold_out = top_values[:, self.k - 1 : self.k]
             is_in = noisy_logits > threshold_in
@@ -220,6 +233,8 @@ class _ReverseGradient(Function):
 
 
 class _WarmGradientReversal(nn.Module):
+    steps: Tensor
+
     def __init__(self, maximum: float, total_steps: int) -> None:
         super().__init__()
         self.maximum = maximum
@@ -363,14 +378,14 @@ class DADA(nn.Module):
         if mode == "none":
             copies = 1
 
+        mean: Tensor | None = None
+        scale: Tensor | None = None
         if normalize:
             mean = x.mean(1, keepdim=True).detach()
             scale = x.var(1, keepdim=True, unbiased=False).add(1e-5).sqrt()
             model_input = (x - mean) / scale
         else:
-            mean = scale = None
             model_input = x
-
         representation, balance = self._represent(
             model_input,
             copies=copies,
@@ -380,7 +395,7 @@ class DADA(nn.Module):
         reconstruction = self._decode(
             representation, self.decoder, x.shape[0], x.shape[2], copies
         )
-        adversarial_reconstruction = None
+        adversarial_reconstruction: Tensor | None = None
         if adversarial:
             reversed_representation = self.grl(representation)
             adversarial_reconstruction = self._decode(
@@ -390,7 +405,7 @@ class DADA(nn.Module):
                 x.shape[2],
                 copies,
             )
-        if normalize:
+        if mean is not None and scale is not None:
             reconstruction = reconstruction * scale.unsqueeze(0) + mean.unsqueeze(0)
             if adversarial_reconstruction is not None:
                 adversarial_reconstruction = (
@@ -479,6 +494,7 @@ class DADALightningModule(L.LightningModule):
 
     @staticmethod
     def _series(batch: object) -> Tensor:
+        series: Tensor | None
         if isinstance(batch, Tensor):
             series = batch
         elif isinstance(batch, Mapping):

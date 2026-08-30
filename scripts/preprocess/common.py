@@ -480,10 +480,10 @@ def _encode_timestamps(
     frame.
     """
     if timestamps is None:
-        packed = np.arange(rows, dtype=np.int64)
+        generated = np.arange(rows, dtype=np.int64)
         return (
-            packed,
-            pd.Series(packed),
+            generated,
+            pd.Series(generated),
             "index",
             _timestamp_encoding(None, "generated_index", "packed"),
         )
@@ -502,7 +502,7 @@ def _encode_timestamps(
         )
 
     if pd.api.types.is_integer_dtype(series.dtype):
-        packed = _integer_timestamps(series.to_numpy())
+        packed: np.ndarray | None = _integer_timestamps(series.to_numpy())
         if packed is not None:
             return (
                 packed,
@@ -990,7 +990,7 @@ class DatasetWriter:
         features = pd.DataFrame(
             {"dtype": [str(common_dtype)] * len(names)}, index=names
         )
-        manifest = {
+        manifest: dict[str, Any] = {
             "source": self._source,
             **(
                 {"collection": self._collection}

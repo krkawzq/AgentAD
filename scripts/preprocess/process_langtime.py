@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 if __package__:
-    from .common import (
+    from .common import (  # type: ignore[import-not-found]
         DatasetWriter,
         SplitData,
         jsonable,
@@ -338,4 +337,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

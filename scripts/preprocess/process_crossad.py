@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 if __package__:
-    from .common import (
+    from .common import (  # type: ignore[import-not-found]
         DatasetWriter,
         SplitData,
         long_to_split,
@@ -208,4 +207,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

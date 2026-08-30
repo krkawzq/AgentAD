@@ -7,7 +7,6 @@ Usage:
 import argparse
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 REPO_URL = "https://github.com/CSTCloudOps/datasets.git"
@@ -38,4 +37,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

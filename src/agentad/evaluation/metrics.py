@@ -259,7 +259,7 @@ _STANDARD_METRICS = (
     "Standard-FN",
     "Standard-TN",
 )
-_STANDARD_COUNT_METRICS = (
+_STANDARD_COUNT_METRICS: tuple[MetricName, ...] = (
     "Standard-TP",
     "Standard-FP",
     "Standard-FN",
@@ -527,21 +527,21 @@ def _evaluate_prepared(
         computed["PA-Exact-F1"] = exact_pa.f1
 
     if any(name in _EVENT_METRICS for name in selected):
-        event_values = (
-            _event_prf(labels, predictions)
-            if predictions is not None
-            else oracle_prfs[3:6]
-        )
+        if predictions is not None:
+            event_values = _event_prf(labels, predictions)
+        else:
+            assert oracle_prfs is not None
+            event_values = oracle_prfs[3:6]
         computed["Event-based-Precision"] = float(event_values[0])
         computed["Event-based-Recall"] = float(event_values[1])
         computed["Event-based-F1"] = float(event_values[2])
 
     if any(name in _RANGE_METRICS for name in selected):
-        range_values = (
-            _range_prf(labels, predictions, range_alpha)
-            if predictions is not None
-            else oracle_prfs[6:9]
-        )
+        if predictions is not None:
+            range_values = _range_prf(labels, predictions, range_alpha)
+        else:
+            assert oracle_prfs is not None
+            range_values = oracle_prfs[6:9]
         computed["R-based-Precision"] = float(range_values[0])
         computed["R-based-Recall"] = float(range_values[1])
         computed["R-based-F1"] = float(range_values[2])

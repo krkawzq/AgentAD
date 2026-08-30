@@ -63,7 +63,7 @@ def _grow_tree(
         if level >= limit or indices.size <= 1:
             return node
         subset = rows[indices]
-        normal = generator.standard_normal(dim)
+        normal = np.asarray(generator.standard_normal(dim))
         zeroed = generator.choice(dim, dim - extension - 1, replace=False)
         normal[zeroed] = 0.0
         point = generator.uniform(subset.min(axis=0), subset.max(axis=0))

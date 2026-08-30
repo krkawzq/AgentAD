@@ -1,8 +1,8 @@
 """Shared helpers for the training-free baselines.
 
 Every baseline consumes ``[batch, time, feature]`` tensors and returns
-``[batch, time]`` scores through a frozen config plus a ``score`` function,
-without learning any parameters.
+``[batch, time]`` scores through a frozen config plus a ``score``
+function; whatever fitting a method does happens inside the call.
 """
 
 from __future__ import annotations

@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import shutil
-import sys
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -120,4 +119,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

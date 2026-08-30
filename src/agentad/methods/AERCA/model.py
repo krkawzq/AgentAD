@@ -9,7 +9,6 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 from collections.abc import Mapping
 import lightning as L
-from torch import Tensor
 
 from .._utils import evaluation_mode, sliding_windows, validate_series
 from .config import AERCAConfig
@@ -82,6 +81,10 @@ class AERCALoss:
 
 class AERCA(nn.Module):
     """AERCA detector with causal-graph and root-cause outputs."""
+
+    root_cause_center: Tensor
+    root_cause_scale: Tensor
+    root_cause_calibrated: Tensor
 
     def __init__(self, config: AERCAConfig) -> None:
         super().__init__()

@@ -123,6 +123,13 @@ def _restore_duplicate_columns(
     return frame
 
 
+def _group_array(group: zarr.Group, name: str) -> zarr.Array:
+    node = group[name]
+    if not isinstance(node, zarr.Array):
+        raise TypeError(f"stored {name!r} must be an array, got {type(node).__name__}")
+    return node
+
+
 def _load(
     group: zarr.Group,
     payload: dict,
@@ -177,7 +184,7 @@ def _load(
     labels = _restore_empty_categoricals(
         labels, empty_categoricals.get("labels"), "labels"
     )
-    offsets = np.asarray(group[ARRAY_OFFSETS][:])
+    offsets = np.asarray(_group_array(group, ARRAY_OFFSETS)[:])
     if offsets.ndim != 1:
         raise ValueError(f"stored offsets must be 1-D, got shape {offsets.shape}")
     if offsets.dtype != np.dtype(np.int64):
@@ -210,13 +217,13 @@ def _load(
             labels.columns = label_columns
         labels.attrs = label_attrs
     expected_values = point_count * len(features)
-    stored_data = group[ARRAY_DATA]
+    stored_data = _group_array(group, ARRAY_DATA)
     if stored_data.ndim != 1 or stored_data.size != expected_values:
         raise ValueError(
             "stored data must be a flat array with "
             f"{expected_values} values, got shape {stored_data.shape}"
         )
-    stored_timestamps = group[ARRAY_TIMESTAMPS]
+    stored_timestamps = _group_array(group, ARRAY_TIMESTAMPS)
     if (
         stored_timestamps.ndim != 1
         or stored_timestamps.shape[0] != point_count

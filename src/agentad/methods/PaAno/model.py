@@ -9,9 +9,8 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 import math
 from collections.abc import Mapping
-from typing import Any
 import lightning as L
-from torch import Tensor
+from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig
 
 from .._utils import (
     evaluation_mode,
@@ -499,7 +498,7 @@ class PaAnoLightningModule(L.LightningModule):
         if self._best_iteration_state is not None:
             self.load_state_dict(self._best_iteration_state)
 
-    def configure_optimizers(self) -> dict[str, Any]:
+    def configure_optimizers(self) -> OptimizerLRSchedulerConfig:
         optimizer = torch.optim.AdamW(
             self.parameters(),
             lr=self.config.learning_rate,

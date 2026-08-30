@@ -76,7 +76,7 @@ def _fit_robust(
     """Concentration steps from random subsets; the smallest determinant wins."""
     generator = torch.Generator(device="cpu").manual_seed(config.seed)
     count = rows.shape[0]
-    best = None
+    best: tuple[Tensor, Tensor, Tensor] | None = None
     for _ in range(config.starts):
         subset = torch.randperm(count, generator=generator)[:h].sort().values
         for _ in range(100):
@@ -96,6 +96,8 @@ def _fit_robust(
         determinant = torch.linalg.det(covariance)
         if best is None or determinant < best[0]:
             best = (determinant, mean, covariance)
+    if best is None:
+        raise RuntimeError("MCD refinement produced no candidate subset")
     _, mean, covariance = best
     return mean, _precision(covariance)
 

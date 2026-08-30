@@ -79,7 +79,7 @@ def _attrs_signature(attrs: dict[str, Any]) -> bytes:
         return _pickle_schema(attrs)
 
 
-def _update_schema_digest(digest: "hashlib._Hash", frame: pd.DataFrame) -> None:
+def _update_schema_digest(digest: "hashlib.blake2b", frame: pd.DataFrame) -> None:
     digest.update(_pickle_schema((frame.columns, tuple(frame.dtypes))))
     digest.update(_attrs_signature(frame.attrs))
     digest.update(str(frame.shape).encode("ascii"))
@@ -1094,6 +1094,7 @@ class SeriesItem:
     @property
     def meta(self) -> dict[str, Any]:
         if self._owner is not None:
+            assert self._index is not None
             return self._owner._metas[self._index]
         return self._meta
 
@@ -1103,6 +1104,7 @@ class SeriesItem:
             raise TypeError("item meta must be a mapping")
         copied = _copy_json_mapping(value, "item meta")
         if self._owner is not None:
+            assert self._index is not None
             self._owner._metas[self._index] = copied
         else:
             self._meta = copied

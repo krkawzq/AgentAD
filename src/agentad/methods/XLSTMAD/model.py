@@ -10,7 +10,6 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 from collections.abc import Mapping
 import lightning as L
-from torch import Tensor
 
 from .._utils import evaluation_mode, sliding_windows, validate_series
 from .config import XLSTMADConfig

@@ -12,7 +12,7 @@ from collections.abc import Mapping, Sequence
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
-from typing import Any
+from typing import Any, overload
 from urllib.parse import parse_qs, urlsplit
 
 from ..series import SeriesData
@@ -51,6 +51,12 @@ class _Query:
     def text(self, name: str, default: str = "") -> str:
         values = self._values.get(name)
         return values[-1] if values else default
+
+    @overload
+    def integer(self, name: str, default: int) -> int: ...
+
+    @overload
+    def integer(self, name: str, default: int | None = None) -> int | None: ...
 
     def integer(self, name: str, default: int | None = None) -> int | None:
         raw = self.text(name)
@@ -481,6 +487,8 @@ class WebUI:
         """Run the WebUI until interrupted."""
         server = self.create_server(host, port)
         actual_host, actual_port = server.server_address[:2]
+        if isinstance(actual_host, bytes):
+            actual_host = actual_host.decode()
         browser_host = "127.0.0.1" if actual_host in {"0.0.0.0", "::"} else actual_host
         if ":" in browser_host:
             browser_host = f"[{browser_host}]"

@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, TypeAlias
+from typing import Literal, TypeAlias, cast
 
 import numpy as np
 import pandas as pd
@@ -520,25 +520,28 @@ def evaluate_collection(
                 window = 0
             started = time.perf_counter()
             row.update(
-                _evaluate_prepared(
-                    series.labels,
-                    score,
-                    predictions=prediction,
-                    selected=internal_selected,
-                    sliding_window=window,
-                    threshold_count=threshold_count,
-                    vus_threshold_count=vus_threshold_count,
-                    range_alpha=range_alpha,
-                    precision_k=precision_k,
-                    k_delay=k_delay,
-                    event_scale=event_scale,
-                    event_base=event_base,
-                    tolerance=tolerance,
-                    pate_early_buffer=pate_early_buffer,
-                    pate_delayed_buffer=pate_delayed_buffer,
-                    pate_buffer_splits=pate_buffer_splits,
-                    pate_include_zero=pate_include_zero,
-                    pate_threshold_count=pate_threshold_count,
+                cast(
+                    "dict[str, object]",
+                    _evaluate_prepared(
+                        series.labels,
+                        score,
+                        predictions=prediction,
+                        selected=internal_selected,
+                        sliding_window=window,
+                        threshold_count=threshold_count,
+                        vus_threshold_count=vus_threshold_count,
+                        range_alpha=range_alpha,
+                        precision_k=precision_k,
+                        k_delay=k_delay,
+                        event_scale=event_scale,
+                        event_base=event_base,
+                        tolerance=tolerance,
+                        pate_early_buffer=pate_early_buffer,
+                        pate_delayed_buffer=pate_delayed_buffer,
+                        pate_buffer_splits=pate_buffer_splits,
+                        pate_include_zero=pate_include_zero,
+                        pate_threshold_count=pate_threshold_count,
+                    ),
                 )
             )
             row["metric_seconds"] = time.perf_counter() - started

@@ -5,14 +5,15 @@ from __future__ import annotations
 import argparse
 import csv
 import re
-import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from typing import TypedDict
+
 if __package__:
-    from .common import DatasetWriter, SplitData, staged_source_directory
+    from .common import DatasetWriter, SplitData, staged_source_directory  # type: ignore[import-not-found]
 else:
     from common import DatasetWriter, SplitData, staged_source_directory
 
@@ -24,7 +25,16 @@ FILENAME_PATTERN = re.compile(
 )
 
 
-def parse_filename(path: Path) -> dict[str, object]:
+class FilenameMeta(TypedDict):
+    index: int
+    source_dataset: str
+    source_id: int
+    domain: str
+    train_length: int
+    first_anomaly: int
+
+
+def parse_filename(path: Path) -> FilenameMeta:
     match = FILENAME_PATTERN.fullmatch(path.stem)
     if match is None:
         raise ValueError(f"invalid TSB-AD filename: {path.name}")
@@ -119,7 +129,7 @@ def main() -> None:
                     "are in no file list"
                 )
 
-            files_by_source: dict[str, list[tuple[Path, dict[str, object]]]] = {}
+            files_by_source: dict[str, list[tuple[Path, FilenameMeta]]] = {}
             for path in files:
                 metadata = parse_filename(path)
                 source_dataset = str(metadata["source_dataset"])
@@ -249,4 +259,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

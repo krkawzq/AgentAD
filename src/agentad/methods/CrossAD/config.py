@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +82,7 @@ class CrossADConfig:
             raise ValueError("learning_rate must be positive")
 
     @classmethod
-    def _original(cls, **overrides: object) -> Self:
+    def _original(cls, **overrides: Any) -> Self:
         return cls(**overrides)
 
     @classmethod

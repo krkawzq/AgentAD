@@ -5,11 +5,20 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 import math
+from typing import Protocol, cast
 
 import torch
 from torch import Tensor
 from torch import nn
 from torch.nn import functional as F
+
+
+class _StateDictHost(Protocol):
+    """State-loading contract the host Lightning module must satisfy."""
+
+    def state_dict(self) -> dict[str, Tensor]: ...
+
+    def load_state_dict(self, state_dict: dict[str, Tensor]) -> None: ...
 
 
 class ValidationEarlyStopping:
@@ -65,7 +74,7 @@ class ValidationEarlyStopping:
             if self._restore_best_weights:
                 self._best_state = {
                     key: tensor.detach().cpu().clone()
-                    for key, tensor in self.state_dict().items()
+                    for key, tensor in cast(_StateDictHost, self).state_dict().items()
                 }
         else:
             self._stale_epochs += 1
@@ -74,7 +83,7 @@ class ValidationEarlyStopping:
 
     def on_train_end(self) -> None:
         if self._restore_best_weights and self._best_state is not None:
-            self.load_state_dict(self._best_state)
+            cast(_StateDictHost, self).load_state_dict(self._best_state)
 
 
 @contextmanager

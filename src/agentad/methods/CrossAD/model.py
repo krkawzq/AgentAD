@@ -11,7 +11,7 @@ from torch.nn import functional as F
 from collections.abc import Mapping
 from typing import Callable
 import lightning as L
-from torch import Tensor
+from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig
 
 from .._utils import evaluation_mode, sinusoidal_encoding, validate_series
 from .config import CrossADConfig
@@ -36,10 +36,9 @@ class _SequenceNorm(nn.Module):
     def __init__(self, width: int, kind: str) -> None:
         super().__init__()
         self.norm = nn.BatchNorm1d(width) if kind == "batch" else nn.LayerNorm(width)
-        self.batch = kind == "batch"
 
     def forward(self, x: Tensor) -> Tensor:
-        if self.batch:
+        if isinstance(self.norm, nn.BatchNorm1d):
             channels_first = x.transpose(1, 2)
             if self.training and x.shape[0] * x.shape[1] == 1:
                 return F.batch_norm(
@@ -178,6 +177,10 @@ class _MultiScale(nn.Module):
 
 
 class _ContextMemory(nn.Module):
+    context: Tensor
+    ema_count: Tensor
+    ema_sum: Tensor
+
     def __init__(self, config: CrossADConfig) -> None:
         super().__init__()
         self.top_frequencies = config.top_frequencies
@@ -252,6 +255,10 @@ class _ContextMemory(nn.Module):
 
 class CrossAD(nn.Module):
     """CrossAD with device-safe masks and a bounded EMA context library."""
+
+    position_encoding: Tensor
+    encoder_mask: Tensor
+    decoder_mask: Tensor
 
     def __init__(self, config: CrossADConfig = CrossADConfig()) -> None:
         super().__init__()
@@ -391,6 +398,7 @@ class CrossADLightningModule(ValidationEarlyStopping, L.LightningModule):
 
     @staticmethod
     def _series(batch: object) -> Tensor:
+        series: Tensor | None
         if isinstance(batch, Tensor):
             series = batch
         elif isinstance(batch, Mapping):
@@ -465,7 +473,7 @@ class CrossADLightningModule(ValidationEarlyStopping, L.LightningModule):
 
         return scale
 
-    def configure_optimizers(self) -> dict[str, object]:
+    def configure_optimizers(self) -> OptimizerLRSchedulerConfig:
         optimizer_type = (
             torch.optim.AdamW if self.config.optimizer == "adamw" else torch.optim.Adam
         )
@@ -473,7 +481,7 @@ class CrossADLightningModule(ValidationEarlyStopping, L.LightningModule):
             self.parameters(), lr=self.config.learning_rate
         )
         if self.config.learning_rate_schedule == "type1":
-            scheduler: object = torch.optim.lr_scheduler.LambdaLR(
+            scheduler = torch.optim.lr_scheduler.LambdaLR(
                 optimizer, self._type1_schedule()
             )
         else:

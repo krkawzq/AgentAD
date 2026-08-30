@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import re
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 if __package__:
-    from .common import DatasetWriter, SplitData, staged_source_directory
+    from .common import DatasetWriter, SplitData, staged_source_directory  # type: ignore[import-not-found]
 else:
     from common import DatasetWriter, SplitData, staged_source_directory
 
@@ -248,4 +247,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

@@ -1,4 +1,4 @@
-"""Neural time-series anomaly-detection methods.
+"""Time-series anomaly-detection methods.
 
 Install the project environment before importing this package::
 

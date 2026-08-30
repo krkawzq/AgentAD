@@ -10,7 +10,7 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 from collections.abc import Mapping
 import lightning as L
-from torch import Tensor
+from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig
 
 from .._utils import evaluation_mode, sliding_windows, validate_series
 from .config import TSPulseConfig
@@ -68,6 +68,9 @@ class TSPulseLoss:
 
 class TSPulse(nn.Module):
     """AgentAD interface backed by the complete official TSPulse model."""
+
+    # tsfm_public ships no type stubs; treat the wrapped core as untyped.
+    core: Any
 
     def __init__(self, config: TSPulseConfig, *, core: nn.Module | None = None) -> None:
         super().__init__()
@@ -506,7 +509,7 @@ class TSPulseLightningModule(ValidationEarlyStopping, L.LightningModule):
         series, _, _ = self._batch(batch)
         return self.model.score(series, batch_size=self.config.finetune_batch_size)
 
-    def configure_optimizers(self) -> dict[str, object]:
+    def configure_optimizers(self) -> OptimizerLRSchedulerConfig:
         parameters = [parameter for parameter in self.parameters() if parameter.requires_grad]
         optimizer = torch.optim.AdamW(
             parameters,

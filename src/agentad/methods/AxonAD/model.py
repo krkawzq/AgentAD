@@ -11,7 +11,7 @@ from torch.nn import functional as F
 from collections.abc import Mapping
 from typing import Any
 import lightning as L
-from torch import Tensor
+from lightning.pytorch.core.optimizer import LightningOptimizer
 
 from .._utils import evaluation_mode, sliding_windows, validate_series
 from .config import AxonADConfig
@@ -110,6 +110,12 @@ class AxonADLoss:
 
 class AxonAD(nn.Module):
     """AxonAD with explicit post-optimizer EMA target updates."""
+
+    mse_median: Tensor
+    mse_iqr: Tensor
+    representation_median: Tensor
+    representation_iqr: Tensor
+    calibrated: Tensor
 
     def __init__(self, config: AxonADConfig) -> None:
         super().__init__()
@@ -354,6 +360,7 @@ class AxonADLightningModule(ValidationEarlyStopping, L.LightningModule):
 
     @staticmethod
     def _windows(batch: object) -> Tensor:
+        windows: Tensor | None
         if isinstance(batch, Tensor):
             windows = batch
         elif isinstance(batch, Mapping):
@@ -410,7 +417,7 @@ class AxonADLightningModule(ValidationEarlyStopping, L.LightningModule):
         self,
         epoch: int,
         batch_idx: int,
-        optimizer: torch.optim.Optimizer,
+        optimizer: torch.optim.Optimizer | LightningOptimizer,
         optimizer_closure: Any | None = None,
     ) -> None:
         optimizer.step(closure=optimizer_closure)

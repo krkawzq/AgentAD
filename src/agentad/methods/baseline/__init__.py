@@ -1,8 +1,9 @@
-"""Training-free statistical baselines.
+"""Training-free anomaly-detection baselines.
 
 Every module provides a frozen config dataclass plus a ``score(series,
 config)`` function mapping ``[batch, time, feature]`` tensors to ``[batch,
-time]`` anomaly scores without learning any parameters.
+time]`` anomaly scores; whatever fitting a method does — clustering,
+robust covariance, the SVM dual — happens inside the call.
 """
 
 from .cluster_local_outlier_factor import (

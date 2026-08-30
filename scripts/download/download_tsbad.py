@@ -6,7 +6,6 @@ Usage:
 
 import argparse
 import shutil
-import sys
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -66,4 +65,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

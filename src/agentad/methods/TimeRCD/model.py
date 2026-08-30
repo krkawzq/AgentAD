@@ -12,7 +12,6 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 from collections.abc import Mapping
 import lightning as L
-from torch import Tensor
 
 from .._utils import evaluation_mode, validate_series
 from .config import TimeRCDConfig
@@ -32,6 +31,8 @@ class _RMSNorm(nn.Module):
 
 
 class _RotaryEmbedding(nn.Module):
+    inv_freq: Tensor
+
     def __init__(self, width: int) -> None:
         super().__init__()
         self.register_buffer(
@@ -149,15 +150,22 @@ class _EncoderLayer(nn.Module):
         return x + self.dropout(self.mlp(self.output_norm(x)))
 
 
+class _EncoderStack(nn.Module):
+    """Typed container keeping the pretrained checkpoint's `transformer_encoder.layers` keys."""
+
+    def __init__(self, layers: nn.ModuleList) -> None:
+        super().__init__()
+        self.layers = layers
+
+
 class _TimeSeriesEncoder(nn.Module):
     def __init__(self, config: TimeRCDConfig) -> None:
         super().__init__()
         self.config = config
         self.embedding_layer = nn.Linear(config.patch_length, config.model_dim)
         self.rope_embedder = _RotaryEmbedding(config.model_dim)
-        self.transformer_encoder = nn.Module()
-        self.transformer_encoder.layers = nn.ModuleList(
-            _EncoderLayer(config) for _ in range(config.layers)
+        self.transformer_encoder = _EncoderStack(
+            nn.ModuleList(_EncoderLayer(config) for _ in range(config.layers))
         )
         self.projection_layer = nn.Linear(
             config.model_dim, config.patch_length * config.projection_dim

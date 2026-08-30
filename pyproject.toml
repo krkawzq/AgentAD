@@ -57,3 +57,28 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["src/tests"]
 pythonpath = ["src", "."]
+
+[tool.mypy]
+python_version = "3.12"
+# SQLite 缓存在共享存储上不可用（磁盘 I/O 错误），指向本机临时目录。
+cache_dir = "/tmp/agentad-mypy-cache"
+namespace_packages = true
+explicit_package_bases = true
+mypy_path = ["src", "scripts/preprocess"]
+python_executable = ".venv/bin/python"
+files = ["src/agentad", "scripts"]
+
+# 无 py.typed 标记或按需安装（extras）的第三方依赖。
+[[tool.mypy.overrides]]
+module = [
+    "gdown.*",
+    "numba.*",
+    "pandas.*",
+    "pyarrow.*",
+    "scipy.*",
+    "sklearn.*",
+    "statsmodels.*",
+    "tsfm_public.*",
+    "xlstm.*",
+]
+ignore_missing_imports = true

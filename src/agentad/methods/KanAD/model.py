@@ -7,9 +7,9 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
-from typing import Any, Mapping
+from typing import Mapping
 import lightning as L
-from torch import Tensor
+from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig
 
 from .._utils import evaluation_mode, sliding_windows, validate_series
 from .config import KANADConfig
@@ -34,6 +34,9 @@ class KANAD(nn.Module):
     same shared predictor independently per feature, avoiding one model copy per
     channel while retaining the original hypothesis class.
     """
+
+    periodic_basis: Tensor
+    harmonic_orders: Tensor
 
     def __init__(self, config: KANADConfig = KANADConfig()) -> None:
         super().__init__()
@@ -193,7 +196,7 @@ class KANADLightningModule(ValidationEarlyStopping, L.LightningModule):
         windows, targets = self._batch(batch)
         return self.model.window_score(windows, targets)
 
-    def configure_optimizers(self) -> dict[str, Any]:
+    def configure_optimizers(self) -> OptimizerLRSchedulerConfig:
         optimizer = torch.optim.Adam(
             self.parameters(), lr=self.config.learning_rate
         )

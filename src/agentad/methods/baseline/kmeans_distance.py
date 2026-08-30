@@ -52,15 +52,17 @@ def _kmeans_centers(
     count, width = rows.shape
     k = min(clusters, count)
     centers = torch.empty((k, width), dtype=rows.dtype, device=rows.device)
-    first = torch.randint(count, (1,), generator=generator).item()
+    first = int(torch.randint(count, (1,), generator=generator).item())
     centers[0] = rows[first]
     closest = (rows - centers[0]).square().sum(dim=1)
     for index in range(1, k):
         total = closest.sum()
         if not total > 0:
-            centers[index] = rows[torch.randint(count, (1,), generator=generator).item()]
+            centers[index] = rows[
+                int(torch.randint(count, (1,), generator=generator).item())
+            ]
         else:
-            pick = torch.multinomial(closest, 1, generator=generator).item()
+            pick = int(torch.multinomial(closest, 1, generator=generator).item())
             centers[index] = rows[pick]
         closest = torch.minimum(closest, (rows - centers[index]).square().sum(dim=1))
     for _ in range(iterations):
@@ -95,7 +97,6 @@ def _overlap_average(
 def score(series: Tensor, config: KMeansDistanceConfig) -> Tensor:
     window = config.window or infer_period(series[0, :, 0])
     series = validate_series(series, min_length=window)
-    batch = series.shape[0]
     outputs: list[Tensor] = []
     for item in series:
         rows = _windows(item[None], window)

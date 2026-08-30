@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
 
 if __package__:
-    from .common import DatasetWriter, SplitData, staged_source_directory
+    from .common import DatasetWriter, SplitData, staged_source_directory  # type: ignore[import-not-found]
 else:
     from common import DatasetWriter, SplitData, staged_source_directory
 
@@ -182,4 +181,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

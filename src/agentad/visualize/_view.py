@@ -243,7 +243,7 @@ class SeriesDataView:
         if not needle:
             total = len(self.sdata)
             end = min(total, offset + limit)
-            page = [
+            page: list[dict[str, Any]] = [
                 {
                     "index": index,
                     "id": self.sdata.ids[index],
@@ -259,7 +259,7 @@ class SeriesDataView:
                 "total": total,
                 "has_more": end < total,
             }
-        page: list[dict[str, Any]] = []
+        page = []
         total = 0
         for index, folded_id in enumerate(self._folded_ids):
             if needle and needle not in folded_id:
