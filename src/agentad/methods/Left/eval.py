@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from agentad.benchmark import (
+from ...benchmark import (
     DatasetSplit,
     checkpoints_dir,
     has_score,
@@ -71,7 +71,7 @@ def _load_or_train(
 def _full_series(split: DatasetSplit, series_id: str) -> np.ndarray:
     """Concatenated ``[T, C]`` train prefix and test segment of one series."""
     test_item = split.test[series_id]
-    train_item = split.train[series_id] if split.train else None
+    train_item = split.train[series_id] if split.train is not None else None
     if train_item is None:
         return np.asarray(test_item.data)
     return np.concatenate(
@@ -147,11 +147,3 @@ def evaluate(
             _check_scores(scores, len(full))
             save_score(unit, series_id, scores)
     return write_metrics(split, unit)
-
-
-if __name__ == "__main__":
-    evaluate(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/Left",
-        device="cuda",
-    )

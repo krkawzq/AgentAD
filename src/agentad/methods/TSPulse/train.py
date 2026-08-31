@@ -20,7 +20,7 @@ import torch
 from torch import Tensor
 from torch.utils.data import DataLoader, Dataset, random_split
 
-from agentad.benchmark import checkpoints_dir, load_split, unit_dir
+from ...benchmark import checkpoints_dir, load_split, unit_dir
 
 from .config import TSPulseConfig
 from .model import TSPulseFineTune, TSPulseLightningModule
@@ -67,6 +67,9 @@ _CONFIG_FIELDS = frozenset(field.name for field in fields(TSPulseConfig))
 def _resolve_config(input_features: int, hp: Mapping[str, Any] | None) -> TSPulseConfig:
     """Build the fine-tuning config from the ``original_tsb_finetune`` factory."""
     merged = {**DEFAULT_HP, **(hp or {})}
+    # The scoring prediction mode is fixed to the TSB-AD optimum ("time")
+    # and has no config field, so the key is accepted and ignored here.
+    merged.pop("prediction_mode", None)
     overrides: dict[str, Any] = {}
     for key, value in merged.items():
         name = _HP_FIELDS.get(key, key)
@@ -204,7 +207,7 @@ def train(
         path = checkpoints_dir(unit) / f"{series_id}.pt"
         if resume and path.is_file():
             continue
-        train_item = split.train[series_id] if split.train else None
+        train_item = split.train[series_id] if split.train is not None else None
         if train_item is None:
             continue
         model = _fine_tune(train_item.data, config, device=device, seed=seed)
@@ -212,11 +215,3 @@ def train(
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         torch.save({"config": asdict(config), "state_dict": model.state_dict()}, path)
-
-
-if __name__ == "__main__":
-    train(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/TSPulse-FT",
-        device="cuda",
-    )

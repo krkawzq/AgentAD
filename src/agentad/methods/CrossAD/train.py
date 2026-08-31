@@ -20,7 +20,7 @@ import torch
 from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 
-from agentad.benchmark import DatasetSplit, checkpoints_dir, load_split, unit_dir
+from ...benchmark import DatasetSplit, checkpoints_dir, load_split, unit_dir
 
 from .config import CrossADConfig
 from .model import CrossADLightningModule
@@ -211,11 +211,3 @@ def train(
         torch.save(
             {"config": asdict(config), "state_dict": module.state_dict()}, ckpt_path
         )
-
-
-if __name__ == "__main__":
-    train(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/CrossAD",
-        device="cuda",
-    )

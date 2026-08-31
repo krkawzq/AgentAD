@@ -73,7 +73,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from agentad.benchmark import (
+from ...benchmark import (
     has_score,
     load_split,
     save_score,
@@ -126,10 +126,3 @@ def evaluate(
             raise ValueError(f"{series_id}: scores must be finite and full-length")
         save_score(unit, series_id, scores)
     return write_metrics(split, unit)
-
-
-if __name__ == "__main__":
-    evaluate(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/LocalOutlierFactor",
-    )

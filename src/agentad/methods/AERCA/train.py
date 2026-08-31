@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from agentad.benchmark import checkpoints_dir, load_split, unit_dir
+from ...benchmark import checkpoints_dir, load_split, unit_dir
 
 from .config import AERCAConfig
 from .model import AERCA, AERCALightningModule
@@ -175,12 +175,4 @@ def train(
             "std": torch.from_numpy(trained.std),
         },
         checkpoint,
-    )
-
-
-if __name__ == "__main__":
-    train(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/AERCA",
-        device="cuda",
     )

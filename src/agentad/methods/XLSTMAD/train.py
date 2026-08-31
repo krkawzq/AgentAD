@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Subset, TensorDataset
 
-from agentad.benchmark import checkpoints_dir, load_split, unit_dir
+from ...benchmark import checkpoints_dir, load_split, unit_dir
 
 from .config import XLSTMADConfig
 from .model import XLSTMADLightningModule
@@ -161,11 +161,3 @@ def train(
         config = build_config(train_data.shape[1], device=device, hp=hp)
         module = train_series(train_data, config, device=device)
         save_checkpoint(ckpt_path, module, config)
-
-
-if __name__ == "__main__":
-    train(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/xLSTMAD",
-        device="cuda",
-    )

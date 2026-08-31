@@ -22,7 +22,7 @@ from torch.utils.data import DataLoader, Dataset
 from ...series import SeriesData
 from .config import ScatterADConfig
 from .model import ScatterADLightningModule
-from agentad.benchmark import DatasetSplit, checkpoints_dir, load_split, unit_dir
+from ...benchmark import DatasetSplit, checkpoints_dir, load_split, unit_dir
 
 METHOD_NAME = "ScatterAD"
 
@@ -195,7 +195,7 @@ def train_dataset(
         enable_model_summary=False,
         enable_progress_bar=False,
         logger=False,
-        num_sanity_check_steps=0,
+        num_sanity_val_steps=0,
     )
     trainer.fit(module, train_dataloaders=train_loader, val_dataloaders=val_loader)
     return {
@@ -237,11 +237,3 @@ def train(
     payload = train_dataset(split, device=device, seed=seed, hp=hp)
     checkpoint.parent.mkdir(parents=True, exist_ok=True)
     torch.save(payload, checkpoint)
-
-
-if __name__ == "__main__":
-    train(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/ScatterAD",
-        device="cuda",
-    )

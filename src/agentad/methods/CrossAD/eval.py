@@ -18,7 +18,7 @@ import torch
 from torch import Tensor
 from torch.nn import functional as F
 
-from agentad.benchmark import (
+from ...benchmark import (
     DatasetSplit,
     checkpoints_dir,
     has_score,
@@ -27,7 +27,7 @@ from agentad.benchmark import (
     unit_dir,
     write_metrics,
 )
-from agentad.series import SeriesItem
+from ...series import SeriesItem
 
 from .config import CrossADConfig
 from .model import CrossADLightningModule
@@ -44,6 +44,7 @@ def _load_or_train(
     source: str,
     hp: Mapping[str, Any] | None,
     device: str,
+    seed: int,
     resume: bool,
 ) -> CrossADLightningModule:
     """Load the stored checkpoint or train on the fly; training here stays in
@@ -55,7 +56,7 @@ def _load_or_train(
         module.load_state_dict(payload["state_dict"])
         return module
     config = select_config(series_id, source, hp)
-    return train_series(train_data, config, device=device)
+    return train_series(train_data, config, device=device, seed=seed)
 
 
 def _score_windows(
@@ -154,17 +155,10 @@ def evaluate(
             source=split.source,
             hp=hp,
             device=device,
+            seed=seed,
             resume=resume,
         )
         scores = score_series(module, full, module.config, device=device)
         _check_scores(scores, len(full))
         save_score(unit, series_id, scores)
     return write_metrics(split, unit)
-
-
-if __name__ == "__main__":
-    evaluate(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/CrossAD",
-        device="cuda",
-    )

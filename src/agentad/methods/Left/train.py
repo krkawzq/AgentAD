@@ -21,7 +21,7 @@ import torch
 from torch import Tensor
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
 
-from agentad.benchmark import (
+from ...benchmark import (
     DatasetSplit,
     checkpoints_dir,
     load_split,

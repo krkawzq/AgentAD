@@ -19,7 +19,7 @@ import torch
 from .config import ScatterADConfig
 from .model import ScatterADLightningModule
 from .train import METHOD_NAME, checkpoint_path, train_dataset
-from agentad.benchmark import (
+from ...benchmark import (
     has_score,
     load_split,
     save_score,
@@ -94,11 +94,3 @@ def evaluate(
         _check_scores(scores, len(full))
         save_score(unit, series_id, scores)
     return write_metrics(split, unit)
-
-
-if __name__ == "__main__":
-    evaluate(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/ScatterAD",
-        device="cuda",
-    )

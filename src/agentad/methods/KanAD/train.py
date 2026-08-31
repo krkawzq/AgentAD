@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from agentad.benchmark import checkpoints_dir, load_split, unit_dir
+from ...benchmark import checkpoints_dir, load_split, unit_dir
 
 from .config import KANADConfig
 from .model import KANAD, KANADLightningModule
@@ -161,11 +161,3 @@ def train(
             device=device,
             checkpoint=ckpt_path,
         )
-
-
-if __name__ == "__main__":
-    train(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root=f"benchmarks/{METHOD_NAME}",
-        device="cuda",
-    )

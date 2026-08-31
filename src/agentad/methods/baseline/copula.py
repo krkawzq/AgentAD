@@ -42,6 +42,9 @@ def _column_ecdf(values: Tensor) -> Tensor:
 
 def _score_item(matrix: Tensor, config: CopulaConfig) -> Tensor:
     if config.normalize:
+        # Univariate: normalize along time like the other univariate
+        # baselines; upstream COPOD always uses axis=1, which collapses a
+        # [T, 1] window to all-zero scores (and TSB-AD has no uni entry).
         if matrix.shape[1] == 1:
             matrix = zscore(matrix, dim=0, ddof=0)
         else:
@@ -76,7 +79,7 @@ import lightning as L
 import numpy as np
 import pandas as pd
 
-from agentad.benchmark import (
+from ...benchmark import (
     has_score,
     load_split,
     save_score,
@@ -117,13 +120,13 @@ def evaluate(
     Scores are stored under ``output_root`` (already-scored series are
     skipped when ``resume``) and the per-series metric table is returned.
     """
-    L.seed_everything(seed)
     split = load_split(dataset_dir, artifact, partition=partition)
     unit = unit_dir(output_root, METHOD_NAME, split)
     config = CopulaConfig(**{**DEFAULT_HP, **(hp or {})})
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
             continue
+        L.seed_everything(seed)
         train_item = split.train[series_id] if split.train is not None else None
         test_item = split.test[series_id]
         full = (
@@ -135,10 +138,3 @@ def evaluate(
         _check_scores(scores, len(full))
         save_score(unit, series_id, scores)
     return write_metrics(split, unit)
-
-
-if __name__ == "__main__":
-    evaluate(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/Copula",
-    )

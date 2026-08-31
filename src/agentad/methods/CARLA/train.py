@@ -22,7 +22,7 @@ import torch
 from torch import Tensor
 from torch.utils.data import DataLoader
 
-from agentad.benchmark import checkpoints_dir, load_split, unit_dir
+from ...benchmark import checkpoints_dir, load_split, unit_dir
 
 from .._utils import sliding_windows
 from .config import CARLAConfig
@@ -370,11 +370,3 @@ def train(
             device=torch.device(device),
         )
         _save_checkpoint(checkpoint, config, model, artifacts)
-
-
-if __name__ == "__main__":
-    train(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/CARLA",
-        device="cuda",
-    )

@@ -101,14 +101,14 @@ import lightning as L
 import numpy as np
 import pandas as pd
 
-from agentad.benchmark import (
+from ...benchmark import (
     has_score,
     load_split,
     save_score,
     unit_dir,
     write_metrics,
 )
-from agentad.evaluation.period import find_period
+from ...evaluation.period import find_period
 
 METHOD_NAME = "Histogram"
 
@@ -168,12 +168,12 @@ def evaluate(
     stored under ``output_root`` (already-scored series are skipped when
     ``resume``) and the per-series metric table is returned.
     """
-    L.seed_everything(seed)
     split = load_split(dataset_dir, artifact, partition=partition)
     unit = unit_dir(output_root, METHOD_NAME, split)
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
             continue
+        L.seed_everything(seed)
         train_item = split.train[series_id] if split.train is not None else None
         test_item = split.test[series_id]
         full = (
@@ -186,10 +186,3 @@ def evaluate(
         _check_scores(scores, len(full))
         save_score(unit, series_id, scores)
     return write_metrics(split, unit)
-
-
-if __name__ == "__main__":
-    evaluate(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/Histogram",
-    )

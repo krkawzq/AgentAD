@@ -73,14 +73,14 @@ import numpy as np
 import pandas as pd
 import torch
 
-from agentad.benchmark import (
+from ...benchmark import (
     has_score,
     load_split,
     save_score,
     unit_dir,
     write_metrics,
 )
-from agentad.evaluation.period import find_period
+from ...evaluation.period import find_period
 
 # TSB-AD optimal HP (HP_list.py), selected per channel count in evaluate:
 # multivariate runs 'KNN' = {'n_neighbors': 50, 'method': 'mean'} at window 1
@@ -136,10 +136,3 @@ def evaluate(
             raise ValueError(f"{series_id}: scores must be finite and full-length")
         save_score(unit, series_id, scores)
     return write_metrics(split, unit)
-
-
-if __name__ == "__main__":
-    evaluate(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/NearestNeighbors",
-    )

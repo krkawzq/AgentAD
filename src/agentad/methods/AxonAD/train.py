@@ -112,7 +112,9 @@ def train_series(
         shuffle=True,
     )
     valid_loader: DataLoader | None = None
-    if len(valid_segment) > 0:
+    # A validation tail shorter than one window yields no windows; the
+    # original then trains without validation, so skip early stopping here.
+    if len(valid_segment) >= config.window_length:
         valid_windows = _window_tensor(valid_segment, config.window_length)
         if len(valid_windows) > 0:
             valid_loader = DataLoader(
@@ -174,11 +176,3 @@ def train(
             {"config": asdict(config), "state_dict": module.state_dict()},
             checkpoint,
         )
-
-
-if __name__ == "__main__":
-    train(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/AxonAD",
-        device="cuda",
-    )

@@ -23,7 +23,7 @@ import torch
 from torch import Tensor
 
 from ._common import combine_channels, per_channel, zscore
-from agentad.benchmark import (
+from ...benchmark import (
     has_score,
     load_split,
     save_score,
@@ -135,7 +135,7 @@ def evaluate(
         if resume and has_score(unit, series_id):
             continue
         L.seed_everything(seed)
-        train_item = split.train[series_id] if split.train else None
+        train_item = split.train[series_id] if split.train is not None else None
         test_item = split.test[series_id]
         full = (
             np.concatenate([train_item.data, test_item.data])
@@ -147,10 +147,3 @@ def evaluate(
             raise ValueError(f"invalid scores for series {series_id!r}")
         save_score(unit, series_id, scores)
     return write_metrics(split, unit)
-
-
-if __name__ == "__main__":
-    evaluate(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/Fourier",
-    )

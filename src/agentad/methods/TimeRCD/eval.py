@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from agentad.benchmark import (
+from ...benchmark import (
     DatasetSplit,
     has_score,
     load_split,
@@ -140,11 +140,3 @@ def evaluate(
         _check_scores(scores, len(full))
         save_score(unit, series_id, scores)
     return write_metrics(split, unit)
-
-
-if __name__ == "__main__":
-    evaluate(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/Time-RCD",
-        device="cuda",
-    )

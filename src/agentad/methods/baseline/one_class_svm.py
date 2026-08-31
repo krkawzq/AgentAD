@@ -159,14 +159,14 @@ import lightning as L
 import numpy as np
 import pandas as pd
 
-from agentad.benchmark import (
+from ...benchmark import (
     has_score,
     load_split,
     save_score,
     unit_dir,
     write_metrics,
 )
-from agentad.evaluation.period import find_period
+from ...evaluation.period import find_period
 
 # TSB-AD optimal HP mapped to this config: nu -> nu; 'rbf' is this
 # implementation's only kernel, and gamma keeps the sklearn-'auto'
@@ -222,7 +222,7 @@ def evaluate(
         if resume and has_score(unit, series_id):
             continue
         L.seed_everything(seed)
-        train_item = split.train[series_id] if split.train else None
+        train_item = split.train[series_id] if split.train is not None else None
         test_item = split.test[series_id]
         full = (
             np.concatenate([train_item.data, test_item.data])
@@ -237,10 +237,3 @@ def evaluate(
             raise RuntimeError(f"OneClassSVM: invalid scores for {series_id}")
         save_score(unit, series_id, scores)
     return write_metrics(split, unit)
-
-
-if __name__ == "__main__":
-    evaluate(
-        "data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        "benchmarks/OneClassSVM",
-    )

@@ -114,11 +114,3 @@ def evaluate(
         _check_scores(scores, len(full), series_id)
         save_score(unit, series_id, scores)
     return write_metrics(split, unit)
-
-
-if __name__ == "__main__":
-    evaluate(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/AxonAD",
-        device="cuda",
-    )

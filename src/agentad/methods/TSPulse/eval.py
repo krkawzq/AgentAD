@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from agentad.benchmark import (
+from ...benchmark import (
     checkpoints_dir,
     has_score,
     load_split,
@@ -135,17 +135,17 @@ def evaluate_zero_shot(
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
             continue
-        train_item = split.train[series_id] if split.train else None
+        train_item = split.train[series_id] if split.train is not None else None
         test_item = split.test[series_id]
         full = (
             np.concatenate([train_item.data, test_item.data])
             if train_item is not None
             else test_item.data
         )
-        if full.shape[0] < config.context_length + 1:
+        if full.shape[0] < model.context_length + 1:
             print(
                 f"skipping {series_id!r}: {full.shape[0]} points < "
-                f"context_length + 1 ({config.context_length + 1})"
+                f"context_length + 1 ({model.context_length + 1})"
             )
             continue
         save_score(
@@ -174,13 +174,16 @@ def evaluate_finetune(
         if resume and has_score(unit, series_id):
             continue
         L.seed_everything(seed)
-        train_item = split.train[series_id] if split.train else None
+        train_item = split.train[series_id] if split.train is not None else None
         test_item = split.test[series_id]
         full = (
             np.concatenate([train_item.data, test_item.data])
             if train_item is not None
             else test_item.data
         )
+        # The finetune factory's context_length must match the checkpoint's
+        # (512 for the bundled pretrained snapshot); the zero-shot entry
+        # instead reads model.context_length, the authoritative value.
         if full.shape[0] < config.context_length + 1:
             print(
                 f"skipping {series_id!r}: {full.shape[0]} points < "
@@ -207,11 +210,3 @@ def evaluate_finetune(
             ),
         )
     return write_metrics(split, unit)
-
-
-if __name__ == "__main__":
-    evaluate_zero_shot(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/TSPulse-ZS",
-        device="cuda",
-    )

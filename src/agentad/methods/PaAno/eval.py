@@ -18,7 +18,7 @@ import pandas as pd
 import torch
 from numpy.typing import ArrayLike
 
-from agentad.benchmark import (
+from ...benchmark import (
     DatasetSplit,
     checkpoints_dir,
     has_score,
@@ -133,11 +133,3 @@ def evaluate(
         _check_scores(scores, full.shape[0])
         save_score(unit, series_id, scores)
     return write_metrics(split, unit)
-
-
-if __name__ == "__main__":
-    evaluate(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/PaAno",
-        device="cuda",
-    )

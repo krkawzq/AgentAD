@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from agentad.benchmark import (
+from ...benchmark import (
     has_score,
     load_split,
     save_score,
@@ -90,10 +90,10 @@ def evaluate(
     split = load_split(dataset_dir, artifact, partition=partition)
     unit = unit_dir(output_root, METHOD_NAME, split)
     merged_hp = {**DEFAULT_HP, **(hp or {})}
-    L.seed_everything(seed)
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
             continue
+        L.seed_everything(seed)
         train_item = split.train[series_id] if split.train is not None else None
         test_item = split.test[series_id]
         full = (
@@ -103,10 +103,3 @@ def evaluate(
         )
         save_score(unit, series_id, _score_series(full, merged_hp))
     return write_metrics(split, unit)
-
-
-if __name__ == "__main__":
-    evaluate(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/MMPAD",
-    )

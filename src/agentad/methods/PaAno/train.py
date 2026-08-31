@@ -21,7 +21,7 @@ from numpy.typing import ArrayLike
 from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 
-from agentad.benchmark import DatasetSplit, checkpoints_dir, load_split, unit_dir
+from ...benchmark import DatasetSplit, checkpoints_dir, load_split, unit_dir
 
 from .._utils import sliding_windows
 from .config import PaAnoConfig
@@ -138,6 +138,11 @@ def train_series(
     scoring-ready via ``module.model.score`` on the concatenated full
     series, and nothing is persisted.
     """
+    if not config.use_revin:
+        # The non-RevIN protocol (forks/PaAno main.py) z-scores with train
+        # statistics; that branch is not implemented here, so fail fast
+        # instead of silently training on unnormalized data.
+        raise ValueError("use_revin=False is not supported by this script")
     L.seed_everything(seed)
     target = torch.device(device)
     patches, series = _train_patches(train_data, config, target)
@@ -159,7 +164,14 @@ def train_series(
         enable_progress_bar=False,
         enable_model_summary=False,
     )
-    trainer.fit(module, train_dataloaders=DataLoader(batches, batch_size=None))
+    # batch_size=None feeds each collate call the single (patches, anchors)
+    # tuple itself; an identity collate keeps it intact for _batch.
+    trainer.fit(
+        module,
+        train_dataloaders=DataLoader(
+            batches, batch_size=None, collate_fn=lambda item: item
+        ),
+    )
     module.model.fit_memory(series)
     return module
 
@@ -215,11 +227,3 @@ def train(
         config = build_config(train_data.shape[1], hp)
         module = train_series(train_data, config=config, device=device, seed=seed)
         _save_checkpoint(ckpt_path, module, config)
-
-
-if __name__ == "__main__":
-    train(
-        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
-        output_root="benchmarks/PaAno",
-        device="cuda",
-    )
