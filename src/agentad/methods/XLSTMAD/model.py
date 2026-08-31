@@ -134,6 +134,11 @@ class XLSTMAD(nn.Module):
 
 
 class XLSTMADLightningModule(ValidationEarlyStopping, L.LightningModule):
+    """Data contract: the TSB-AD integration standardizes each channel
+    (zero standard deviation maps to 1e-8) before windowing and validates
+    on the last 20% of the training windows; the caller owns both
+    steps."""
+
     def __init__(self, config: XLSTMADConfig) -> None:
         super().__init__()
         self.config = config

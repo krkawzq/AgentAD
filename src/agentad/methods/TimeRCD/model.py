@@ -432,6 +432,15 @@ def load_official_checkpoint(
 
 
 class TimeRCDLightningModule(L.LightningModule):
+    """Pre-training module.
+
+    Data contract: the random patch mask and both loss terms act on every
+    time step of the batch, so training windows must be equal-length
+    series without padding — or carry explicit ``masked_points`` and
+    labels whose padding entries the loss can skip, as ``_batch``
+    accepts.
+    """
+
     def __init__(self, config: TimeRCDConfig) -> None:
         super().__init__()
         self.config = config

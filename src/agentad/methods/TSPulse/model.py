@@ -414,6 +414,18 @@ class TSPulseFineTune(TSPulse):
 
 
 class TSPulseLightningModule(ValidationEarlyStopping, L.LightningModule):
+    """Fine-tuning module.
+
+    Data contract: batches should carry an ``observed_mask`` from an
+    enumerated patch-masking dataset to reproduce the reference recipe
+    (see ``TSPulse._generate_training_mask``) and windows standardized
+    per channel as the reference fine-tuning dataset does. The reference
+    pipeline also caps fine-tuning at five epochs when the series has
+    fewer than 3000 points and drops the batch size to eight when the
+    enumerated training set has fewer than 500 samples, so scale
+    ``finetune_epochs``/``finetune_batch_size`` down accordingly.
+    """
+
     def __init__(
         self,
         config: TSPulseConfig,

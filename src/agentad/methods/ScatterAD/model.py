@@ -236,6 +236,12 @@ class ScatterAD(nn.Module):
 
 
 class ScatterADLightningModule(L.LightningModule):
+    """Data contract: the original fits a standard scaler on the whole
+    training file (validation tail included), transforms every split with
+    it, slides training and validation windows at stride one, and scores
+    on non-overlapping windows; the caller owns that standardization and
+    windowing."""
+
     def __init__(self, config: ScatterADConfig) -> None:
         super().__init__()
         self.config = config

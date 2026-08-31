@@ -1,4 +1,12 @@
-"""Two-stage contrastive and neighbor-classification CARLA model."""
+"""Two-stage contrastive and neighbor-classification CARLA model.
+
+Stage assembly is the caller's job: train ``CARLAPretextLightningModule``
+first, then hand its weights to ``CARLAClassificationLightningModule``
+(the original transfers every pretext weight except the projection head)
+and mine each anchor's nearest/furthest neighbors in the pretext
+projection space before classification, mirroring the hand-off between
+the original pretext and classification entry points.
+"""
 
 from __future__ import annotations
 

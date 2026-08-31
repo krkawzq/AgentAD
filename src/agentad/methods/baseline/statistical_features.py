@@ -307,7 +307,7 @@ def _score_channel(x: Tensor, config: StatisticalFeaturesConfig) -> Tensor:
     phi = _estimate_ar1_phi(x)
     period = _estimate_period(x, config.max_period_lag)
     acorr_baseline = torch.quantile(_rolling_corr_lag(x, 1, window), 0.5)
-    distributions, entropies, _ = _spectral_samples(
+    distributions, entropies, centers = _spectral_samples(
         x, spectral_window, spectral_stride
     )
     if distributions.numel():
@@ -356,17 +356,17 @@ def _score_channel(x: Tensor, config: StatisticalFeaturesConfig) -> Tensor:
     if distributions.numel():
         signature_deviation = _interp_samples(
             (distributions - signature).abs().sum(dim=1),
-            torch.arange(distributions.shape[0], device=x.device),
+            centers,
             n,
         )
         entropy_deviation = _interp_samples(
             (entropies - spectral_entropy).abs(),
-            torch.arange(entropies.shape[0], device=x.device),
+            centers,
             n,
         )
         high_band = _interp_samples(
             distributions[:, -1],
-            torch.arange(distributions.shape[0], device=x.device),
+            centers,
             n,
         )
     else:

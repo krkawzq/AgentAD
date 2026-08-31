@@ -6,9 +6,10 @@ time when univariate). Each tree subsamples at most ``sample_size`` points
 and splits with a random hyperplane: a normal vector with ``extension_level
 + 1`` random components, passing through a point whose coordinates are
 uniform between the per-dimension extrema. A point's score is the mean
-traversal depth normalized by the expected unsuccessful-search depth of a
+traversal depth — with the average unsuccessful-search depth of the
+samples stranded in its leaf added, as in the standard forest —
+normalized by the expected unsuccessful-search depth of a
 binary search tree, so points isolated near the root score close to one.
-Unlike the axis-aligned forest, leaf sizes do not add to the path length.
 """
 
 from __future__ import annotations
@@ -43,15 +44,16 @@ class ExtendedIsolationForestConfig:
 
 def _grow_tree(
     rows: np.ndarray, limit: int, extension: int, generator: np.random.Generator
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Grow one oblique tree; returns node arrays of normals, points,
-    children, and depths, with ``left < 0`` marking a leaf."""
+    children, depths, and subtree sizes, with ``left < 0`` marking a leaf."""
     dim = rows.shape[1]
     normals: list[np.ndarray] = []
     points: list[np.ndarray] = []
     left: list[int] = []
     right: list[int] = []
     depth: list[int] = []
+    sizes: list[int] = []
 
     def build(indices: np.ndarray, level: int) -> int:
         node = len(left)
@@ -60,6 +62,7 @@ def _grow_tree(
         left.append(-1)
         right.append(-1)
         depth.append(level)
+        sizes.append(int(indices.size))
         if level >= limit or indices.size <= 1:
             return node
         subset = rows[indices]
@@ -84,6 +87,7 @@ def _grow_tree(
         np.array(left),
         np.array(right),
         np.array(depth),
+        np.array(sizes),
     )
 
 
@@ -94,8 +98,10 @@ def _tree_depths(
     left: np.ndarray,
     right: np.ndarray,
     depth: np.ndarray,
+    sizes: np.ndarray,
 ) -> Tensor:
-    """Route every point to its leaf; the score path is the plain depth."""
+    """Route every point to its leaf; the path length is the traversal depth
+    plus the average unsuccessful-search depth of the leaf's samples."""
     count = rows.shape[0]
     current = torch.zeros(count, dtype=torch.long, device=rows.device)
     normals_t = torch.from_numpy(normals).to(rows.device, rows.dtype)
@@ -113,7 +119,14 @@ def _tree_depths(
             torch.where(projection < 0, left_t[safe], right_t[safe]),
             current,
         )
-    return torch.from_numpy(depth).to(rows.device, rows.dtype)[current]
+    depths = torch.from_numpy(depth).to(rows.device, rows.dtype)[current]
+    leaf_sizes = torch.from_numpy(sizes).to(rows.device)[current]
+    table = torch.tensor(
+        [expected_search_depth(size) for size in range(int(sizes.max()) + 1)],
+        dtype=rows.dtype,
+        device=rows.device,
+    )
+    return depths + table[leaf_sizes]
 
 
 def _score_item(

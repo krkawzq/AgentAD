@@ -1,4 +1,10 @@
-"""Periodic Kolmogorov-Arnold network for one-step anomaly prediction."""
+"""Periodic Kolmogorov-Arnold network for one-step anomaly prediction.
+
+Data contract: the method is defined on first-order differences
+standardized with training-split statistics, and it must train and score
+in that domain — the caller preprocesses the series accordingly (see
+``KANADConfig.original_default``).
+"""
 
 from __future__ import annotations
 

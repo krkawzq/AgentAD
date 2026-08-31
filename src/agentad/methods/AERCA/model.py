@@ -329,6 +329,11 @@ class AERCA(nn.Module):
 
 
 class AERCALightningModule(ValidationEarlyStopping, L.LightningModule):
+    """Data contract: the original splits the training series 80/20 into
+    train and validation — by series when several are given, by time for
+    a single one — and early-stops on the validation loss; the caller
+    provides that split through the dataloaders."""
+
     def __init__(self, config: AERCAConfig) -> None:
         super().__init__()
         self.config = config

@@ -5,7 +5,8 @@ window across its own features — single-feature windows keep their raw
 scale — clusters the windows into ``clusters`` centers with Lloyd
 iterations from k-means++ seeds, and scores each window by its euclidean
 distance to the assigned center. Window scores map back to points by
-averaging every window that covers the point, matching the original
+averaging every window that covers the point; edge points average only
+the windows that actually cover them, matching the original
 reverse-windowing.
 """
 
@@ -82,15 +83,23 @@ def _kmeans_centers(
 def _overlap_average(
     window_scores: Tensor, window: int, length: int
 ) -> Tensor:
-    """Average the scores of all windows covering each point; the tail padding
-    beyond the last window start takes the last window's score."""
-    scores = window_scores
-    tail = length - scores.numel()
-    if tail > 0:
-        scores = torch.cat((scores, scores[-1:].expand(tail)))
-    padded = torch.cat((scores, scores[-1:].expand(window - 1)))
-    windows = padded.unfold(0, window, 1)
-    return windows.mean(dim=1)[:length]
+    """Average the scores of all windows covering each point.
+
+    Window ``j`` covers points ``[j, j + window - 1]``, so point ``p`` takes
+    the mean over window starts ``[p - window + 1, p]`` clipped to the
+    available windows; the sequence edges average fewer windows instead of
+    borrowing scores from beyond the boundary.
+    """
+    count = window_scores.numel()
+    prefix = torch.cat(
+        (window_scores.new_zeros(1), window_scores.double().cumsum(0))
+    )
+    positions = torch.arange(length, device=window_scores.device)
+    start = (positions - (window - 1)).clamp_min(0)
+    end = positions.clamp_max(count - 1)
+    totals = prefix[end + 1] - prefix[start]
+    sizes = (end - start + 1).clamp_min(1)
+    return (totals / sizes).to(window_scores.dtype)
 
 
 @torch.inference_mode()

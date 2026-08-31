@@ -340,6 +340,12 @@ class AxonAD(nn.Module):
 
 
 class AxonADLightningModule(ValidationEarlyStopping, L.LightningModule):
+    """Data contract: the original standardizes every split (training,
+    validation, calibration, scoring) per feature along time before
+    windowing and holds out the last 20% of the training series — a
+    contiguous tail slice, re-windowed — for validation; the caller owns
+    both steps when building the dataloaders."""
+
     def __init__(self, config: AxonADConfig) -> None:
         super().__init__()
         self.config = config

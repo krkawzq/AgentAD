@@ -38,10 +38,11 @@ class KANADConfig:
     def original_default(cls) -> Self:
         """Configuration from ``forks/KAN-AD/kanad/config.toml``.
 
-        The toml additionally declares ``[Data_Params]`` (z-score preprocessing
-        and first-order differencing) that the original EasyTSAD data factory
-        applied outside the method; this package expects the caller to
-        preprocess equivalently instead of carrying unused fields.
+        The toml additionally declares ``[Data_Params]`` — first-order
+        differencing followed by z-score standardization fitted on the
+        training split — that the original EasyTSAD data factory applied
+        outside the method; the caller must preprocess equivalently, so
+        the fields are not carried here.
         """
         return cls()
 

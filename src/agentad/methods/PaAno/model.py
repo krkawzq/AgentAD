@@ -411,6 +411,11 @@ class PaAno(nn.Module):
 
 
 class PaAnoLightningModule(L.LightningModule):
+    """Data contract: with RevIN disabled the original standardizes the
+    training and test series with training statistics and scores the
+    train+test concatenation; the caller owns that standardization and
+    the scoring range."""
+
     def __init__(self, config: PaAnoConfig | None = None) -> None:
         super().__init__()
         self.config = config or PaAnoConfig.original_default()

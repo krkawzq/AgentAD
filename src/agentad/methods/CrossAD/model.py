@@ -382,6 +382,11 @@ class CrossAD(nn.Module):
 
 
 class CrossADLightningModule(ValidationEarlyStopping, L.LightningModule):
+    """Data contract: the original slides training windows at stride one,
+    validates and scores on non-overlapping windows (stride
+    ``sequence_length``), and z-scores every split independently; the
+    caller owns windowing and standardization."""
+
     def __init__(self, config: CrossADConfig | None = None) -> None:
         super().__init__()
         self.config = config or CrossADConfig.original_msl()
