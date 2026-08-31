@@ -65,7 +65,9 @@ def _contract(
     if unknown:
         preview = ", ".join(unknown[:8])
         suffix = " ..." if len(unknown) > 8 else ""
-        raise ValueError(f"CSV contains columns outside the contract: {preview}{suffix}")
+        raise ValueError(
+            f"CSV contains columns outside the contract: {preview}{suffix}"
+        )
     if not feature_columns:
         raise ValueError(f"CSV requires at least one {CSV_FEATURE_PREFIX}<name> column")
 
@@ -100,9 +102,7 @@ def _timestamps(values: pd.Series) -> tuple[np.ndarray, dict[str, str] | None]:
             and (np.abs(original) <= 2**53).all()
         ):
             return np.ascontiguousarray(original.astype(np.int64)), None
-        raise ValueError(
-            "CSV numeric timestamps must be exact signed int64 integers"
-        )
+        raise ValueError("CSV numeric timestamps must be exact signed int64 integers")
     elif pd.api.types.is_object_dtype(values.dtype) or isinstance(
         values.dtype, pd.StringDtype
     ):
@@ -113,8 +113,7 @@ def _timestamps(values: pd.Series) -> tuple[np.ndarray, dict[str, str] | None]:
         if integer_strings.all():
             integers = [int(value) for value in strings]
             if any(
-                value < int64_info.min or value > int64_info.max
-                for value in integers
+                value < int64_info.min or value > int64_info.max for value in integers
             ):
                 raise ValueError(
                     "CSV timestamp integer is outside the signed int64 range"
@@ -126,9 +125,7 @@ def _timestamps(values: pd.Series) -> tuple[np.ndarray, dict[str, str] | None]:
         # pandas >= 3 parses to microsecond resolution; the packed timestamp
         # contract stores epoch nanoseconds.
         timestamps = (
-            parsed.dt.as_unit("ns")
-            .astype("int64")
-            .to_numpy(dtype=np.int64, copy=False)
+            parsed.dt.as_unit("ns").astype("int64").to_numpy(dtype=np.int64, copy=False)
         )
     except (TypeError, ValueError, OverflowError) as error:
         raise ValueError(

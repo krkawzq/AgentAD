@@ -41,10 +41,7 @@ class _RevIN(nn.Module):
         # gradients reach x directly but never flow through the mean or scale.
         mean = x.mean(-1, keepdim=True).detach()
         scale = (
-            x.var(-1, keepdim=True, unbiased=False)
-            .detach()
-            .add(self.epsilon)
-            .sqrt()
+            x.var(-1, keepdim=True, unbiased=False).detach().add(self.epsilon).sqrt()
         )
         normalized = (x - mean) / scale.clamp_min(self.min_scale)
         if self.weight is not None:
@@ -203,9 +200,7 @@ class PaAno(nn.Module):
         )
         positives = all_patches.index_select(0, positive_indices)
         pretext_horizon = total_iterations * self.config.pretext_fraction
-        pretext_active = (
-            iteration < pretext_horizon and self.config.pretext_weight > 0
-        )
+        pretext_active = iteration < pretext_horizon and self.config.pretext_weight > 0
         if pretext_active:
             # The original embeds anchors, positives, and the full pretext
             # batch (invalid rows as zero patches) in one forward pass so the
@@ -484,7 +479,9 @@ class PaAnoLightningModule(L.LightningModule):
     def validation_step(self, batch: object, batch_idx: int) -> Tensor:
         return self._step(batch, "val")
 
-    def on_train_batch_end(self, outputs: object, batch: object, batch_idx: int) -> None:
+    def on_train_batch_end(
+        self, outputs: object, batch: object, batch_idx: int
+    ) -> None:
         # The original compares the iteration loss after optimizer.step() and
         # deep-copies the post-update weights, so the snapshot lags the loss
         # by one update.

@@ -78,9 +78,7 @@ def evaluate(
     """
     split = load_split(dataset_dir, artifact, partition=partition)
     if split.train is None:
-        raise FileNotFoundError(
-            f"AERCA needs a normal train prefix: {split.unit_name}"
-        )
+        raise FileNotFoundError(f"AERCA needs a normal train prefix: {split.unit_name}")
     unit = unit_dir(output_root, METHOD_NAME, split)
     pending = [
         series_id

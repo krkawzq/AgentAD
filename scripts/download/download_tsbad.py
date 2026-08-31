@@ -43,10 +43,18 @@ def extract(zip_path: Path, out_dir: Path, subdir: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Download TSB-AD dataset")
-    parser.add_argument("--output-dir", type=Path, default=Path("data/raw/TSB-AD"),
-                        help="output directory (default: data/raw/TSB-AD)")
-    parser.add_argument("--only", choices=["U", "M"], default=None,
-                        help="download only U (univariate) or M (multivariate)")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("data/raw/TSB-AD"),
+        help="output directory (default: data/raw/TSB-AD)",
+    )
+    parser.add_argument(
+        "--only",
+        choices=["U", "M"],
+        default=None,
+        help="download only U (univariate) or M (multivariate)",
+    )
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)

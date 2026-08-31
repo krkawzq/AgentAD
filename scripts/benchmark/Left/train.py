@@ -62,13 +62,15 @@ def main() -> None:
         dataset_dir=args.dataset_dir,
         output_root=args.output_root,
         artifact=args.artifact,
-        partition=None if args.partition.lower() == 'none' else args.partition,
+        partition=None if args.partition.lower() == "none" else args.partition,
         device=args.device,
         seed=args.seed,
         hp=_parse_hp(args.hp) or None,
         resume=not args.no_resume,
     )
-    print(f"checkpoints written under {args.output_root}/<source>/<artifact>/checkpoints/")
+    print(
+        f"checkpoints written under {args.output_root}/<source>/<artifact>/checkpoints/"
+    )
 
 
 if __name__ == "__main__":

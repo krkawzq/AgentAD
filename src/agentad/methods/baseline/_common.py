@@ -32,9 +32,7 @@ def expected_search_depth(size: int) -> float:
     return 2.0 * harmonic - 2.0 * (size - 1) / size
 
 
-def per_channel(
-    series: Tensor, *, min_length: int = 1
-) -> tuple[Tensor, int, int]:
+def per_channel(series: Tensor, *, min_length: int = 1) -> tuple[Tensor, int, int]:
     """Flatten ``[batch, time, feature]`` to ``[batch*feature, time]`` rows.
 
     Univariate-family baselines score every channel independently; the

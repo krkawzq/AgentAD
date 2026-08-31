@@ -174,10 +174,7 @@ def main() -> None:
                             "semantic_dataset": semantic,
                         }
                     )
-                    print(
-                        f"{SOURCE}/{dataset}/{semantic}: "
-                        f"{counts[semantic]} series"
-                    )
+                    print(f"{SOURCE}/{dataset}/{semantic}: {counts[semantic]} series")
 
 
 if __name__ == "__main__":

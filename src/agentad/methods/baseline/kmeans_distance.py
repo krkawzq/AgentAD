@@ -12,13 +12,26 @@ reverse-windowing.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any, Mapping
 
+import lightning as L
+import numpy as np
+import pandas as pd
 import torch
 from torch import Tensor
 
-from ._common import infer_period, zscore
+from ...benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
+from ...evaluation.period import find_period
 from .._utils import sliding_windows, validate_series
+from ._common import infer_period, zscore
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,9 +93,7 @@ def _kmeans_centers(
     return centers
 
 
-def _overlap_average(
-    window_scores: Tensor, window: int, length: int
-) -> Tensor:
+def _overlap_average(window_scores: Tensor, window: int, length: int) -> Tensor:
     """Average the scores of all windows covering each point.
 
     Window ``j`` covers points ``[j, j + window - 1]``, so point ``p`` takes
@@ -91,9 +102,7 @@ def _overlap_average(
     borrowing scores from beyond the boundary.
     """
     count = window_scores.numel()
-    prefix = torch.cat(
-        (window_scores.new_zeros(1), window_scores.double().cumsum(0))
-    )
+    prefix = torch.cat((window_scores.new_zeros(1), window_scores.double().cumsum(0)))
     positions = torch.arange(length, device=window_scores.device)
     start = (positions - (window - 1)).clamp_min(0)
     end = positions.clamp_max(count - 1)
@@ -124,32 +133,13 @@ def score(series: Tensor, config: KMeansDistanceConfig) -> Tensor:
         )
         assignment = torch.cdist(rows, centers).argmin(dim=1)
         window_scores = (rows - centers[assignment]).square().sum(dim=1).sqrt()
-        outputs.append(
-            _overlap_average(window_scores, window, series.shape[1])
-        )
+        outputs.append(_overlap_average(window_scores, window, series.shape[1]))
     return torch.stack(outputs)
 
 
 # TSB-AD evaluation entry (form C in tmp/method_train_eval_spec.md); the
 # detector above is frozen and reused as-is.
 
-from dataclasses import replace
-from pathlib import Path
-from typing import Any, Mapping
-
-import lightning as L
-import numpy as np
-import pandas as pd
-import torch
-
-from ...benchmark import (
-    has_score,
-    load_split,
-    save_score,
-    unit_dir,
-    write_metrics,
-)
-from ...evaluation.period import find_period
 
 # TSB-AD optimal HP (HP_list.py), selected per channel count in evaluate:
 # multivariate 'KMeansAD' = {'n_clusters': 10, 'window_size': 40}; the

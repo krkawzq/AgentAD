@@ -34,8 +34,12 @@ FILES = [
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Download DCDetector datasets")
-    parser.add_argument("--output-dir", type=Path, default=Path("data/raw/DCDetector"),
-                        help="output directory (default: data/raw/DCDetector)")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("data/raw/DCDetector"),
+        help="output directory (default: data/raw/DCDetector)",
+    )
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -51,8 +55,9 @@ def main() -> None:
         zip_path = bm / zip_name
         if not zip_path.exists():
             print(f"downloading {zip_name}...")
-            gdown.download(f"https://drive.google.com/uc?id={file_id}",
-                           str(zip_path), quiet=False)
+            gdown.download(
+                f"https://drive.google.com/uc?id={file_id}", str(zip_path), quiet=False
+            )
         print(f"extracting: {zip_name}")
         tmp = bm / f"_{stem}_tmp"
         with zipfile.ZipFile(zip_path) as zf:

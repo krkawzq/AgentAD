@@ -172,9 +172,9 @@ class _PatchEmbedding(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         x = F.pad(x.transpose(1, 2), (0, self.patch_length - 1), mode="replicate")
         patches = x.unfold(-1, self.patch_length, self.stride)
-        return self.dropout(self.projection(
-            patches.reshape(-1, patches.shape[-2], self.patch_length)
-        ))
+        return self.dropout(
+            self.projection(patches.reshape(-1, patches.shape[-2], self.patch_length))
+        )
 
 
 class _ScaleEncoderLayer(nn.Module):
@@ -390,8 +390,7 @@ class Left(nn.Module):
             config.patch_dropout,
         )
         self.scale_encoder = nn.ModuleList(
-            _ScaleEncoderLayer(config)
-            for _ in range(config.encoder_layers)
+            _ScaleEncoderLayer(config) for _ in range(config.encoder_layers)
         )
         self.scale_norm = nn.LayerNorm(config.model_dim)
         self.time_encoder = _TimeEncoder(config)
@@ -803,8 +802,13 @@ class LeftLightningModule(ValidationEarlyStopping, L.LightningModule):
 
     def _type2_schedule(self) -> Callable[[int], float]:
         milestones = (
-            (2, 5e-5), (4, 1e-5), (6, 5e-6), (8, 1e-6),
-            (10, 5e-7), (15, 1e-7), (20, 5e-8),
+            (2, 5e-5),
+            (4, 1e-5),
+            (6, 5e-6),
+            (8, 1e-6),
+            (10, 5e-7),
+            (15, 1e-7),
+            (20, 5e-8),
         )
 
         def scale(epoch: int) -> float:
@@ -830,9 +834,7 @@ class LeftLightningModule(ValidationEarlyStopping, L.LightningModule):
         return scale
 
     def configure_optimizers(self) -> OptimizerLRSchedulerConfig:
-        optimizer = torch.optim.Adam(
-            self.parameters(), lr=self.config.learning_rate
-        )
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.config.learning_rate)
         if self.config.learning_rate_schedule == "type1":
             scheduler = torch.optim.lr_scheduler.LambdaLR(
                 optimizer, self._type1_schedule()

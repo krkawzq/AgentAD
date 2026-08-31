@@ -103,9 +103,7 @@ def test_dataset_writer_lossless_dtype_normalization_keeps_source_dtype(
     )
     writer.finalize()
 
-    packed = read(
-        tmp_path / "source" / "integer-series" / "integer-series.zarr.zip"
-    )
+    packed = read(tmp_path / "source" / "integer-series" / "integer-series.zarr.zip")
     assert packed.data.dtype == np.float64
     assert packed["sample"].meta["source_data_dtype"] == "int64"
 
@@ -123,9 +121,7 @@ def test_dataset_writer_keeps_mixed_timestamp_encodings_in_one_artifact(
     writer.add_series(
         series_id="integer",
         splits={
-            "data": SplitData(
-                [1.0, 2.0], timestamps=[10, 20], feature_names=["value"]
-            )
+            "data": SplitData([1.0, 2.0], timestamps=[10, 20], feature_names=["value"])
         },
     )
     writer.add_series(
@@ -323,9 +319,10 @@ def test_semantic_dataset_names_are_independent_of_storage_schema(
     assert dc_dataset("NAB", "NAB_data_art1_5") == "NAB-artificialWithAnomaly"
     assert easytsad_dataset("Yahoo", "synthetic_7") == "Yahoo-S5-A2"
     assert easytsad_dataset("NAB", "Twitter_volume_AAPL") == "NAB-realTweets"
-    assert monash_identity(
-        Path("weather_dataset(4)_downsample_2.csv")
-    ) == ("Weather", 2)
+    assert monash_identity(Path("weather_dataset(4)_downsample_2.csv")) == (
+        "Weather",
+        2,
+    )
 
     arrow_path = tmp_path / "electricity" / "15T" / "data-00000.arrow"
     arrow_path.parent.mkdir(parents=True)

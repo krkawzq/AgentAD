@@ -23,7 +23,6 @@ import pandas as pd
 import torch
 from torch import Tensor
 
-from ._common import combine_channels, infer_period, per_channel
 from ...benchmark import (
     has_score,
     load_split,
@@ -32,6 +31,7 @@ from ...benchmark import (
     write_metrics,
 )
 from ...evaluation.period import find_period
+from ._common import combine_channels, infer_period, per_channel
 
 
 @dataclass(frozen=True, slots=True)

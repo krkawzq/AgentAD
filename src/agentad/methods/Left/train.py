@@ -105,7 +105,9 @@ def train_split(
     train_parts: list[Dataset] = []
     val_parts: list[Dataset] = []
     if split.train is None:
-        raise ValueError(f"LEFT is semisupervised; {split.unit_name} has no train split")
+        raise ValueError(
+            f"LEFT is semisupervised; {split.unit_name} has no train split"
+        )
     for series_id in split.train.ids:
         data = split.train[series_id].data
         train_end = int(len(data) * 0.8)
@@ -116,9 +118,7 @@ def train_split(
         if len(val_windows):
             val_parts.append(val_windows)
     if not train_parts:
-        raise ValueError(
-            f"no training windows of length {window} in {split.unit_name}"
-        )
+        raise ValueError(f"no training windows of length {window} in {split.unit_name}")
     train_set: Dataset = ConcatDataset(train_parts)
     val_set: Dataset = ConcatDataset(val_parts) if val_parts else train_set
 

@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from ..evaluation import (
-    TSB_AD_METRICS,
+    DEFAULT_METRICS,
     MetricName,
     evaluate_collection,
 )
@@ -22,7 +22,7 @@ def write_metrics(
     split: DatasetSplit,
     unit: str | Path,
     *,
-    metrics: Iterable[MetricName] = TSB_AD_METRICS,
+    metrics: Iterable[MetricName] = DEFAULT_METRICS,
     label_column: str = "label",
     sliding_window: int | str = "auto",
 ) -> pd.DataFrame:

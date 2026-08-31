@@ -57,9 +57,7 @@ def _windowing(hp: Mapping[str, Any] | None) -> tuple[int, int]:
     return window, stride
 
 
-def _build_config(
-    input_features: int, hp: Mapping[str, Any] | None
-) -> ScatterADConfig:
+def _build_config(input_features: int, hp: Mapping[str, Any] | None) -> ScatterADConfig:
     merged = {
         name: value
         for name, value in _merged_hp(hp).items()
@@ -110,9 +108,7 @@ class _WindowDataset(Dataset):
     def __getitem__(self, index: int) -> torch.Tensor:
         source = int(np.searchsorted(self._bounds, index, side="right")) - 1
         offset = (index - int(self._bounds[source])) * self._stride
-        return torch.from_numpy(
-            self._arrays[source][offset : offset + self._window]
-        )
+        return torch.from_numpy(self._arrays[source][offset : offset + self._window])
 
 
 def _series_split(train: SeriesData) -> tuple[list[str], list[str]]:
@@ -183,9 +179,7 @@ def train_dataset(
     mean, std = _fit_scaler([item.data for item in split.train])
     window, stride = _windowing(hp)
     config = _build_config(split.train.n_features, hp)
-    train_loader, val_loader = _loaders(
-        config, split.train, mean, std, window, stride
-    )
+    train_loader, val_loader = _loaders(config, split.train, mean, std, window, stride)
     module = ScatterADLightningModule(config)
     trainer = L.Trainer(
         accelerator="gpu" if torch.device(device).type == "cuda" else "cpu",

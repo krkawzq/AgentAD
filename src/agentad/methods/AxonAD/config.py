@@ -59,7 +59,9 @@ class AxonADConfig:
         if self.early_stopping_min_delta < 0:
             raise ValueError("early_stopping_min_delta must be non-negative")
         if self.learning_rate <= 0 or self.weight_decay < 0:
-            raise ValueError("learning_rate must be positive and weight_decay non-negative")
+            raise ValueError(
+                "learning_rate must be positive and weight_decay non-negative"
+            )
         if not 0 <= self.validation_fraction < 1:
             raise ValueError("validation_fraction must be in [0, 1)")
         if self.gradient_clip_val <= 0:

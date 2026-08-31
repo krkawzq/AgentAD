@@ -224,9 +224,7 @@ class TestWriteRead:
         ],
         ids=["index", "multiindex"],
     )
-    def test_zero_column_labels_preserve_column_axis(
-        self, tmp_path, zipped, columns
-    ):
+    def test_zero_column_labels_preserve_column_axis(self, tmp_path, zipped, columns):
         labels = pd.DataFrame(index=pd.RangeIndex(2))
         labels.columns = columns.copy()
         sdata = SeriesData(
@@ -324,9 +322,7 @@ class TestWriteRead:
         assert not target.exists()
 
     @pytest.mark.parametrize("table_name", ["features", "labels"])
-    def test_duplicate_columns_rejected_before_publish(
-        self, tmp_path, table_name
-    ):
+    def test_duplicate_columns_rejected_before_publish(self, tmp_path, table_name):
         sdata = SeriesData(
             features=pd.DataFrame(
                 [["a", "b"]], columns=["left", "right"], index=["f0"]

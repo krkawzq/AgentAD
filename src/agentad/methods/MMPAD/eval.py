@@ -48,9 +48,7 @@ def _build_config(features: int, hp: Mapping[str, Any]) -> MMPADConfig:
         else MMPADConfig.original_univariate_hp0
     )
     config = factory(subsequence_length=hp.get("subsequence_length"))
-    overrides = {
-        key: value for key, value in hp.items() if key != "subsequence_length"
-    }
+    overrides = {key: value for key, value in hp.items() if key != "subsequence_length"}
     return replace(config, **overrides) if overrides else config
 
 

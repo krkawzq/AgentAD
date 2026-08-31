@@ -54,7 +54,9 @@ class ScatterADConfig:
         if self.score_epsilon <= 0:
             raise ValueError("score_epsilon must be positive")
         if self.learning_rate <= 0 or not 0 <= self.anomaly_ratio <= 100:
-            raise ValueError("learning_rate must be positive and anomaly_ratio in [0,100]")
+            raise ValueError(
+                "learning_rate must be positive and anomaly_ratio in [0,100]"
+            )
 
     @classmethod
     def _original(cls, input_features: int) -> Self:

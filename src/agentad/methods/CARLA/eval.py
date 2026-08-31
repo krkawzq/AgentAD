@@ -40,7 +40,9 @@ from .train import (
 
 def _load_checkpoint(directory: str | Path, device: torch.device) -> CARLA:
     """Rebuild the calibrated model stored by ``train``."""
-    payload = torch.load(Path(directory) / "classification.pt", map_location="cpu", weights_only=False)
+    payload = torch.load(
+        Path(directory) / "classification.pt", map_location="cpu", weights_only=False
+    )
     model = CARLA(CARLAConfig(**payload["config"]))
     model.load_state_dict(payload["state_dict"])
     model.normal_clusters.copy_(payload["normal_clusters"])
@@ -78,7 +80,9 @@ def evaluate(
     """
     split = load_split(dataset_dir, artifact, partition=partition)
     if split.train is None:
-        raise ValueError(f"CARLA is semisupervised; {split.unit_name} has no train split")
+        raise ValueError(
+            f"CARLA is semisupervised; {split.unit_name} has no train split"
+        )
     unit = unit_dir(output_root, METHOD_NAME, split)
     target = torch.device(device)
     for series_id in split.test.ids:
@@ -107,7 +111,9 @@ def evaluate(
             train_data.shape[0] < _min_train_length(config)
             or full.shape[0] < config.window_length
         ):
-            print(f"skipping {series_id!r}: too short for window {config.window_length}")
+            print(
+                f"skipping {series_id!r}: too short for window {config.window_length}"
+            )
             continue
         if model is None:
             model = train_series(

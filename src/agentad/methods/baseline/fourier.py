@@ -22,7 +22,6 @@ import pandas as pd
 import torch
 from torch import Tensor
 
-from ._common import combine_channels, per_channel, zscore
 from ...benchmark import (
     has_score,
     load_split,
@@ -30,6 +29,7 @@ from ...benchmark import (
     unit_dir,
     write_metrics,
 )
+from ._common import combine_channels, per_channel, zscore
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,9 +78,7 @@ def _score_channel(channel: Tensor, config: FourierConfig) -> Tensor:
     # Candidates whose indices stay within region_gap merge into one
     # region; lone candidates stay unscored.
     boundary = candidate.diff() > config.region_gap
-    region = torch.cat(
-        (torch.zeros_like(boundary[:1]), boundary.cumsum(0))
-    )
+    region = torch.cat((torch.zeros_like(boundary[:1]), boundary.cumsum(0)))
     for group in torch.unique(region):
         member = region == group
         if int(member.sum()) < 2:

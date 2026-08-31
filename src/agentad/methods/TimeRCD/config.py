@@ -57,7 +57,9 @@ class TimeRCDConfig:
         if self.epsilon <= 0:
             raise ValueError("epsilon must be positive")
         if self.learning_rate <= 0 or self.weight_decay < 0:
-            raise ValueError("learning_rate must be positive and weight_decay non-negative")
+            raise ValueError(
+                "learning_rate must be positive and weight_decay non-negative"
+            )
 
     @classmethod
     def original_pretraining(cls, *, input_features: int) -> Self:

@@ -53,9 +53,7 @@ def _resolved_length(config: MMPADConfig, series: Tensor) -> int:
     return _infer_subsequence_length(series)
 
 
-def _patches(
-    config: MMPADConfig, series: Tensor, length: int
-) -> tuple[Tensor, Tensor]:
+def _patches(config: MMPADConfig, series: Tensor, length: int) -> tuple[Tensor, Tensor]:
     """Return z-normalized patches and per-dimension validity flags.
 
     A subsequence is invalid on a channel when its standard deviation is
@@ -109,12 +107,8 @@ def _window_scores(
         if self_join:
             query_positions = torch.arange(start, stop, device=query.device)
             exclusion_zone = (
-                reference_positions[None]
-                >= query_positions[:, None] - exclusion
-            ) & (
-                reference_positions[None]
-                < query_positions[:, None] + exclusion
-            )
+                reference_positions[None] >= query_positions[:, None] - exclusion
+            ) & (reference_positions[None] < query_positions[:, None] + exclusion)
             similarity.masked_fill_(exclusion_zone.unsqueeze(-1), -torch.inf)
         # Ascending dimension order per pair: the original sorts with the
         # invalid entries sinking to the tail and then maps them to -inf.
@@ -201,9 +195,7 @@ class MMPADReference:
 
 
 @torch.inference_mode()
-def build_reference(
-    normal_series: Tensor, config: MMPADConfig
-) -> MMPADReference:
+def build_reference(normal_series: Tensor, config: MMPADConfig) -> MMPADReference:
     length = _resolved_length(config, normal_series)
     normal_series = validate_series(
         normal_series,
@@ -231,9 +223,7 @@ def score(
     outputs: list[Tensor] = []
     if reference is not None:
         if reference.patches.shape[-1] != series.shape[-1]:
-            raise ValueError(
-                "series feature count differs from the fitted reference"
-            )
+            raise ValueError("series feature count differs from the fitted reference")
         ref_patches = reference.patches.to(query_patches)
         ref_valid = reference.valid.to(query_patches.device)
         for query, valid in zip(query_patches, query_valid):

@@ -27,8 +27,12 @@ def download(file_id: str, zip_path: Path) -> None:
         return
     print(f"downloading {zip_path.name} from Google Drive...")
     # --continue 支持断点续传（大文件下载易中断）
-    gdown.download(f"https://drive.google.com/uc?id={file_id}",
-                   str(zip_path), quiet=False, continue_ok=True)
+    gdown.download(
+        f"https://drive.google.com/uc?id={file_id}",
+        str(zip_path),
+        quiet=False,
+        continue_ok=True,
+    )
 
 
 def extract(zip_path: Path, out_dir: Path, subdir: str) -> None:
@@ -51,10 +55,18 @@ def extract(zip_path: Path, out_dir: Path, subdir: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Download DADA dataset")
-    parser.add_argument("--output-dir", type=Path, default=Path("data/raw/DADA"),
-                        help="output directory (default: data/raw/DADA)")
-    parser.add_argument("--only", choices=["eval", "monash"], default=None,
-                        help="download only eval or monash")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("data/raw/DADA"),
+        help="output directory (default: data/raw/DADA)",
+    )
+    parser.add_argument(
+        "--only",
+        choices=["eval", "monash"],
+        default=None,
+        help="download only eval or monash",
+    )
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)

@@ -10,13 +10,26 @@ time; multivariate input is standardized per point across features.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
+import lightning as L
+import numpy as np
+import pandas as pd
 import torch
 from torch import Tensor
 
-from ._common import zscore
+from ...benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
 from .._utils import validate_series
+from ._common import zscore
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,21 +84,6 @@ def score(series: Tensor, config: CopulaConfig) -> Tensor:
 # TSB-AD baseline evaluation (spec: tmp/method_train_eval_spec.md §4 shape C)
 # ---------------------------------------------------------------------------
 
-from collections.abc import Mapping
-from pathlib import Path
-from typing import Any
-
-import lightning as L
-import numpy as np
-import pandas as pd
-
-from ...benchmark import (
-    has_score,
-    load_split,
-    save_score,
-    unit_dir,
-    write_metrics,
-)
 
 METHOD_NAME = "Copula"
 

@@ -92,9 +92,7 @@ def _stat_signature(stat: os.stat_result) -> tuple[int, int, int, int, int]:
 
 
 @lru_cache(maxsize=None)
-def _sha256_for_signature(
-    path: str, signature: tuple[int, int, int, int, int]
-) -> str:
+def _sha256_for_signature(path: str, signature: tuple[int, int, int, int, int]) -> str:
     del signature
     return sha256(Path(path))
 
@@ -349,9 +347,7 @@ def _label_columns_frame(
         raise ValueError("label_columns names must be non-empty strings")
     reserved = set(frame.columns) & {"label", "timestamp"}
     if reserved:
-        raise ValueError(
-            f"label_columns uses reserved names: {sorted(reserved)}"
-        )
+        raise ValueError(f"label_columns uses reserved names: {sorted(reserved)}")
     return frame
 
 
@@ -391,9 +387,7 @@ def _integer_timestamps(values: np.ndarray) -> np.ndarray | None:
     return values.astype(np.int64)
 
 
-def _render_datetime_strings(
-    packed: np.ndarray, source_format: str
-) -> np.ndarray:
+def _render_datetime_strings(packed: np.ndarray, source_format: str) -> np.ndarray:
     values = pd.Series(pd.to_datetime(packed, unit="ns", utc=True)).dt.tz_localize(None)
     if source_format == "slash-unpadded-ymd-minute":
         return values.map(
@@ -405,9 +399,7 @@ def _render_datetime_strings(
     return values.dt.strftime(source_format).to_numpy(dtype=object)
 
 
-def _reversible_datetime_format(
-    source: pd.Series, packed: np.ndarray
-) -> str | None:
+def _reversible_datetime_format(source: pd.Series, packed: np.ndarray) -> str | None:
     strings = source.astype(str).to_numpy(dtype=object)
     if len(strings) == 0:
         return None
@@ -729,7 +721,9 @@ class DatasetWriter:
             np.issubdtype(self._data_dtype, np.number)
             or np.issubdtype(self._data_dtype, np.bool_)
         ):
-            raise TypeError(f"data_dtype must be numeric or boolean: {self._data_dtype}")
+            raise TypeError(
+                f"data_dtype must be numeric or boolean: {self._data_dtype}"
+            )
         self._entries: list[_SeriesEntry] = []
         self._series_ids: set[str] = set()
 
@@ -993,9 +987,7 @@ class DatasetWriter:
         manifest: dict[str, Any] = {
             "source": self._source,
             **(
-                {"collection": self._collection}
-                if self._collection is not None
-                else {}
+                {"collection": self._collection} if self._collection is not None else {}
             ),
             "dataset": self._dataset,
             "artifact": self._artifact_name,

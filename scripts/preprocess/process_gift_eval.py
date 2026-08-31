@@ -66,8 +66,7 @@ def time_aligned_matrix(value: Any, rows: int, *, name: str) -> np.ndarray:
     else:
         raise ValueError(f"{name} must be 1D or 2D, got {array.shape}")
     if not (
-        np.issubdtype(array.dtype, np.number)
-        or np.issubdtype(array.dtype, np.bool_)
+        np.issubdtype(array.dtype, np.number) or np.issubdtype(array.dtype, np.bool_)
     ):
         raise TypeError(f"{name} must be numeric, got {array.dtype}")
     return array
@@ -168,9 +167,7 @@ def process_dataset(
     info_path = paths[0].parent / "dataset_info.json"
     state_path = paths[0].parent / "state.json"
     if not info_path.is_file() or not state_path.is_file():
-        raise FileNotFoundError(
-            f"GIFT-Eval metadata is incomplete beside {paths[0]}"
-        )
+        raise FileNotFoundError(f"GIFT-Eval metadata is incomplete beside {paths[0]}")
     with info_path.open(encoding="utf-8") as handle:
         dataset_info = json.load(handle)
     writer = DatasetWriter(
@@ -216,9 +213,7 @@ def process_dataset(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--input-dir", type=Path, default=Path("data/raw/GiftEval")
-    )
+    parser.add_argument("--input-dir", type=Path, default=Path("data/raw/GiftEval"))
     parser.add_argument(
         "--dataset",
         nargs="*",
@@ -232,9 +227,7 @@ def main() -> None:
     if not input_root.is_dir():
         raise FileNotFoundError(input_root)
     arrow_paths = sorted(
-        path
-        for path in input_root.rglob("data-*.arrow")
-        if ".cache" not in path.parts
+        path for path in input_root.rglob("data-*.arrow") if ".cache" not in path.parts
     )
     if args.dataset:
         selected = {value.strip("/") for value in args.dataset}
@@ -243,9 +236,7 @@ def main() -> None:
             for path in arrow_paths
             if path.parent.relative_to(input_root).as_posix() in selected
         ]
-        found = {
-            path.parent.relative_to(input_root).as_posix() for path in arrow_paths
-        }
+        found = {path.parent.relative_to(input_root).as_posix() for path in arrow_paths}
         if found != selected:
             raise FileNotFoundError(
                 f"missing requested GIFT-Eval datasets: {sorted(selected - found)}"
@@ -258,9 +249,7 @@ def main() -> None:
 
     with staged_source_directory(args.output_dir.resolve(), SOURCE) as source_dir:
         for paths in datasets.values():
-            process_dataset(
-                input_root, paths, source_dir, project_root
-            )
+            process_dataset(input_root, paths, source_dir, project_root)
 
 
 if __name__ == "__main__":

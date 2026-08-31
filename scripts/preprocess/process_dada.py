@@ -103,9 +103,7 @@ def load_eval_metadata(path: Path) -> tuple[dict[str, dict[str, Any]], dict[str,
     return records, jsonable(raw.get("channel_info", {}))
 
 
-def process_eval(
-    input_dir: Path, source_dir: Path, project_root: Path
-) -> None:
+def process_eval(input_dir: Path, source_dir: Path, project_root: Path) -> None:
     meta_path = input_dir / "meta.npy"
     metadata, channel_info = load_eval_metadata(meta_path)
     files = sorted(input_dir.glob("*.csv"))
@@ -165,9 +163,7 @@ def process_eval(
         print(f"{SOURCE}/{dataset}: {num_series} series")
 
 
-def process_monash(
-    input_dir: Path, source_dir: Path, project_root: Path
-) -> None:
+def process_monash(input_dir: Path, source_dir: Path, project_root: Path) -> None:
     files = sorted(input_dir.rglob("*.csv"))
     if not files:
         raise FileNotFoundError(f"no Monash CSV files under {input_dir}")

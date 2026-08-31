@@ -111,13 +111,10 @@ def _frame_signature(frame: pd.DataFrame) -> bytes | None:
     return digest.digest()
 
 
-def _frames_equal_positionally(
-    left: pd.DataFrame, right: pd.DataFrame
-) -> bool:
+def _frames_equal_positionally(left: pd.DataFrame, right: pd.DataFrame) -> bool:
     return (
         left.columns.identical(right.columns)
-        and _pickle_schema(tuple(left.dtypes))
-        == _pickle_schema(tuple(right.dtypes))
+        and _pickle_schema(tuple(left.dtypes)) == _pickle_schema(tuple(right.dtypes))
         and _attrs_signature(left.attrs) == _attrs_signature(right.attrs)
         and left.reset_index(drop=True).equals(right.reset_index(drop=True))
     )
@@ -157,12 +154,8 @@ def _copy_json_mapping(value: Mapping[str, Any], where: str) -> dict[str, Any]:
 
 
 def _validate_data_dtype(dtype: np.dtype[Any], where: str) -> None:
-    if not (
-        np.issubdtype(dtype, np.number) or np.issubdtype(dtype, np.bool_)
-    ):
-        raise TypeError(
-            f"{where} must have a numeric or boolean dtype, got {dtype}"
-        )
+    if not (np.issubdtype(dtype, np.number) or np.issubdtype(dtype, np.bool_)):
+        raise TypeError(f"{where} must have a numeric or boolean dtype, got {dtype}")
 
 
 def _native_contiguous_data(array: np.ndarray, where: str) -> np.ndarray:
@@ -224,9 +217,7 @@ class SeriesData:
         if packed_data.ndim == 1:
             packed_data = packed_data.reshape(-1, 1)
         if packed_data.ndim != 2:
-            raise ValueError(
-                f"data must be 1-D or 2-D, got shape {packed_data.shape}"
-            )
+            raise ValueError(f"data must be 1-D or 2-D, got shape {packed_data.shape}")
         packed_data = _native_contiguous_data(packed_data, "data")
 
         packed_timestamps = np.asarray(timestamps)
@@ -244,9 +235,7 @@ class SeriesData:
         if raw_offsets.ndim != 1:
             raise ValueError(f"offsets must be 1-D, got shape {raw_offsets.shape}")
         if raw_offsets.dtype != _INT64:
-            raise TypeError(
-                f"offsets must have dtype int64, got {raw_offsets.dtype}"
-            )
+            raise TypeError(f"offsets must have dtype int64, got {raw_offsets.dtype}")
         # Offsets define the structure rather than values, so SeriesData owns a
         # small independent copy even when the packed value arrays are adopted.
         packed_offsets = np.array(raw_offsets, dtype=np.int64, copy=True, order="C")
@@ -311,9 +300,7 @@ class SeriesData:
         self._labels = packed_labels
 
         if metas is None:
-            packed_metas: list[dict[str, Any]] = [
-                {} for _ in range(n_series)
-            ]
+            packed_metas: list[dict[str, Any]] = [{} for _ in range(n_series)]
         else:
             if isinstance(metas, Mapping):
                 raise TypeError(
@@ -323,8 +310,7 @@ class SeriesData:
             for index, meta in enumerate(metas):
                 if not isinstance(meta, Mapping):
                     raise TypeError(
-                        f"metas[{index}] must be a mapping, "
-                        f"got {type(meta).__name__}"
+                        f"metas[{index}] must be a mapping, got {type(meta).__name__}"
                     )
                 copied = _copy_json_mapping(meta, f"metas[{index}]")
                 packed_metas.append(copied)
@@ -418,8 +404,7 @@ class SeriesData:
         for index, item in enumerate(materialized):
             if not isinstance(item, SeriesItem):
                 raise TypeError(
-                    f"items[{index}] must be a SeriesItem, "
-                    f"got {type(item).__name__}"
+                    f"items[{index}] must be a SeriesItem, got {type(item).__name__}"
                 )
             item._validate_current()
 
@@ -548,10 +533,7 @@ class SeriesData:
 
     def items(self) -> Iterator[tuple[str, SeriesItem]]:
         """Iterate over ``(series_id, item)`` pairs in packed order."""
-        return (
-            (series_id, self[index])
-            for index, series_id in enumerate(self._ids)
-        )
+        return ((series_id, self[index]) for index, series_id in enumerate(self._ids))
 
     def __contains__(self, series_id: object) -> bool:
         return isinstance(series_id, str) and series_id in self._id_to_index
@@ -586,9 +568,7 @@ class SeriesData:
                 return self._id_to_index[key]
             except KeyError:
                 raise KeyError(f"unknown series id: {key!r}") from None
-        if isinstance(key, (int, np.integer)) and not isinstance(
-            key, (bool, np.bool_)
-        ):
+        if isinstance(key, (int, np.integer)) and not isinstance(key, (bool, np.bool_)):
             index = int(key)
             if index < 0:
                 index += len(self)
@@ -600,13 +580,9 @@ class SeriesData:
     def _bounds(self, index: int) -> tuple[int, int]:
         return int(self._offsets[index]), int(self._offsets[index + 1])
 
-    def _validate_table_alignment(
-        self, *, check_offset_order: bool = False
-    ) -> None:
+    def _validate_table_alignment(self, *, check_offset_order: bool = False) -> None:
         if self._data.ndim != 2:
-            raise ValueError(
-                f"data must remain 2-D, got shape {self._data.shape}"
-            )
+            raise ValueError(f"data must remain 2-D, got shape {self._data.shape}")
         _validate_data_dtype(self._data.dtype, "data")
         if not self._data.dtype.isnative:
             raise TypeError(f"data must have native byte order, got {self._data.dtype}")
@@ -636,21 +612,17 @@ class SeriesData:
                 f"offsets must end at the point count {self.total_points}, "
                 f"got {int(self._offsets[-1])}"
             )
-        if check_offset_order and np.any(
-            self._offsets[1:] < self._offsets[:-1]
-        ):
+        if check_offset_order and np.any(self._offsets[1:] < self._offsets[:-1]):
             raise ValueError("offsets must be non-decreasing")
         _validate_unique_columns(self._features, "features")
         _validate_unique_columns(self._labels, "labels")
         if len(self._features) != self.n_features:
             raise ValueError(
-                f"features has {len(self._features)} rows, "
-                f"expected {self.n_features}"
+                f"features has {len(self._features)} rows, expected {self.n_features}"
             )
         if len(self._labels) != self.total_points:
             raise ValueError(
-                f"labels has {len(self._labels)} rows, "
-                f"expected {self.total_points}"
+                f"labels has {len(self._labels)} rows, expected {self.total_points}"
             )
 
     def _register_item_labels(
@@ -671,9 +643,7 @@ class SeriesData:
             self._item_label_overrides.pop(index, None)
             self._set_item_label_baseline(index, labels)
 
-    def _set_item_label_baseline(
-        self, index: int, labels: pd.DataFrame
-    ) -> None:
+    def _set_item_label_baseline(self, index: int, labels: pd.DataFrame) -> None:
         owner_ref = weakref.ref(self)
 
         def remove_baseline(
@@ -692,9 +662,7 @@ class SeriesData:
             _frame_signature(labels),
         )
 
-    def _item_label_baseline(
-        self, index: int, labels: pd.DataFrame
-    ) -> bytes | None:
+    def _item_label_baseline(self, index: int, labels: pd.DataFrame) -> bytes | None:
         tracked = self._item_label_baselines.get(index)
         if tracked is None or tracked[0]() is not labels:
             return None
@@ -772,9 +740,7 @@ class SeriesData:
             if labels is None:
                 labels = self._item_labels.get(index)
             baseline = (
-                None
-                if labels is None
-                else self._item_label_baseline(index, labels)
+                None if labels is None else self._item_label_baseline(index, labels)
             )
             frame_changed = (
                 labels is not None
@@ -838,10 +804,7 @@ class SeriesData:
             )
 
         lengths = np.fromiter(
-            (
-                int(base._offsets[index + 1] - base._offsets[index])
-                for index in order
-            ),
+            (int(base._offsets[index + 1] - base._offsets[index]) for index in order),
             dtype=np.int64,
             count=len(order),
         )
@@ -856,21 +819,16 @@ class SeriesData:
         position = 0
         while position < len(order):
             run_end = position + 1
-            while (
-                run_end < len(order)
-                and order[run_end] == order[run_end - 1] + 1
-            ):
+            while run_end < len(order) and order[run_end] == order[run_end - 1] + 1:
                 run_end += 1
             source_lo = int(base._offsets[order[position]])
             source_hi = int(base._offsets[order[run_end - 1] + 1])
             destination_lo = int(offsets[position])
             destination_hi = int(offsets[run_end])
-            packed_data[destination_lo:destination_hi] = base._data[
+            packed_data[destination_lo:destination_hi] = base._data[source_lo:source_hi]
+            packed_timestamps[destination_lo:destination_hi] = base._timestamps[
                 source_lo:source_hi
             ]
-            packed_timestamps[destination_lo:destination_hi] = (
-                base._timestamps[source_lo:source_hi]
-            )
             label_parts.append(base._labels.iloc[source_lo:source_hi])
             position = run_end
 
@@ -964,9 +922,7 @@ class SeriesItem:
         if stamps.ndim != 1:
             raise ValueError(f"timestamps must be 1-D, got shape {stamps.shape}")
         if stamps.dtype != _INT64:
-            raise TypeError(
-                f"timestamps must have dtype int64, got {stamps.dtype}"
-            )
+            raise TypeError(f"timestamps must have dtype int64, got {stamps.dtype}")
         self._timestamps = np.ascontiguousarray(stamps)
 
         self._owner: SeriesData | None = None
@@ -1073,9 +1029,7 @@ class SeriesItem:
             raise TypeError("item labels must be a pandas DataFrame")
         _validate_unique_columns(value, "item labels")
         if len(value) != len(self):
-            raise ValueError(
-                f"item labels has {len(value)} rows, expected {len(self)}"
-            )
+            raise ValueError(f"item labels has {len(value)} rows, expected {len(self)}")
         if self._owner is not None and not value.columns.identical(
             self._owner._labels.columns
         ):
@@ -1087,9 +1041,7 @@ class SeriesItem:
         self._labels = value
         self._labels_dirty = True
         if self._owner is not None and self._index is not None:
-            self._owner._register_item_labels(
-                self._index, value, override=True
-            )
+            self._owner._register_item_labels(self._index, value, override=True)
 
     @property
     def meta(self) -> dict[str, Any]:

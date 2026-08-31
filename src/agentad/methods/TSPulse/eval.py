@@ -149,7 +149,9 @@ def evaluate_zero_shot(
             )
             continue
         save_score(
-            unit, series_id, _score_full(model, full, device=device, batch_size=batch_size)
+            unit,
+            series_id,
+            _score_full(model, full, device=device, batch_size=batch_size),
         )
     return write_metrics(split, unit)
 

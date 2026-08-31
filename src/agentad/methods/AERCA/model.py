@@ -104,16 +104,14 @@ class AERCA(nn.Module):
         count, features = residuals.shape[1:]
         mean = residuals.mean(1)
         centered = residuals - mean.unsqueeze(1)
-        covariance = (
-            torch.einsum("bti,btj->bij", centered, centered)
-            / max(count - 1, 1)
+        covariance = torch.einsum("bti,btj->bij", centered, centered) / max(
+            count - 1, 1
         )
         # The original regularizes by the condition number so that stiff
         # covariance matrices receive proportionally stronger shrinkage.
         eigenvalues = torch.linalg.eigvalsh(covariance)
         condition = (
-            eigenvalues.max(-1).values
-            / eigenvalues.clamp_min(1e-9).min(-1).values
+            eigenvalues.max(-1).values / eigenvalues.clamp_min(1e-9).min(-1).values
         )
         covariance = covariance + torch.eye(
             features,
@@ -344,9 +342,7 @@ class AERCALightningModule(ValidationEarlyStopping, L.LightningModule):
         )
 
     def forward(self, series: Tensor, *, include_current_residual: bool = True):
-        return self.model(
-            series, include_current_residual=include_current_residual
-        )
+        return self.model(series, include_current_residual=include_current_residual)
 
     @staticmethod
     def _series(batch: object) -> Tensor:

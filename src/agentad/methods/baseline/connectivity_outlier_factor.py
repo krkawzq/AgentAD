@@ -10,13 +10,25 @@ its neighbors', so points on poorly connected paths stand out.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any, Mapping
 
+import lightning as L
+import numpy as np
+import pandas as pd
 import torch
 from torch import Tensor
 
-from ._common import knn_search
+from ...benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
 from .._utils import validate_series
+from ._common import knn_search
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,22 +88,6 @@ def score(series: Tensor, config: ConnectivityOutlierFactorConfig) -> Tensor:
 # TSB-AD evaluation entry (form C in tmp/method_train_eval_spec.md); the
 # detector above is frozen and reused as-is.
 
-from dataclasses import replace
-from pathlib import Path
-from typing import Any, Mapping
-
-import lightning as L
-import numpy as np
-import pandas as pd
-import torch
-
-from ...benchmark import (
-    has_score,
-    load_split,
-    save_score,
-    unit_dir,
-    write_metrics,
-)
 
 # TSB-AD lists COF in neither Optimal dict; the run_COF wrapper default
 # n_neighbors=30 coincides with this Config's default. COF scores raw

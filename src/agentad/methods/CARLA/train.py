@@ -72,7 +72,9 @@ DEFAULT_HP: Mapping[str, Any] = {
 }
 
 
-def build_config(input_features: int, hp: Mapping[str, Any] | None = None) -> CARLAConfig:
+def build_config(
+    input_features: int, hp: Mapping[str, Any] | None = None
+) -> CARLAConfig:
     """Build the model config for a series with ``input_features`` channels.
 
     ``original_msl`` is the generic factory (window 200 at stride 1, every
@@ -156,7 +158,9 @@ def _pretext_positives(windows: Tensor, *, noise_sigma: float) -> Tensor:
     return positives
 
 
-def _make_pretext_collate(bank: Tensor, positives: Tensor) -> Callable[[list[Tensor]], dict[str, Tensor]]:
+def _make_pretext_collate(
+    bank: Tensor, positives: Tensor
+) -> Callable[[list[Tensor]], dict[str, Tensor]]:
     """Batch pretext items as anchor/positive/injected windows of the bank."""
     anchor_count = positives.shape[0]
 
@@ -197,7 +201,9 @@ def _pick_neighbors(
     """
     near_pool = nearest[:, :num_neighbors]
     far_pool = furthest[:, -num_neighbors:]
-    columns = torch.randint(0, num_neighbors, (nearest.shape[0], 1), device=nearest.device)
+    columns = torch.randint(
+        0, num_neighbors, (nearest.shape[0], 1), device=nearest.device
+    )
     return near_pool.gather(1, columns)[:, 0], far_pool.gather(1, columns)[:, 0]
 
 
@@ -351,7 +357,9 @@ def train(
     """
     split = load_split(dataset_dir, artifact, partition=partition)
     if split.train is None:
-        raise ValueError(f"CARLA is semisupervised; {split.unit_name} has no train split")
+        raise ValueError(
+            f"CARLA is semisupervised; {split.unit_name} has no train split"
+        )
     unit = unit_dir(output_root, METHOD_NAME, split)
     for series_id in split.test.ids:
         checkpoint = checkpoints_dir(unit) / series_id

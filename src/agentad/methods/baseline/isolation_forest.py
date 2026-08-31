@@ -13,19 +13,31 @@ one. Window scores center-align to points.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any
 
+import lightning as L
 import numpy as np
+import pandas as pd
 import torch
 from torch import Tensor
 
+from ...benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
+from .._utils import validate_series
 from ._common import (
     expected_search_depth,
     infer_period,
     pad_window_scores,
     windowed_features,
 )
-from .._utils import validate_series
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,9 +176,7 @@ def _score_item(
         depths = _tree_depths(features, *tree)
         total = total + depths
     average = total / config.trees
-    window_scores = torch.pow(
-        2.0, -average / max(denominator, 1e-12)
-    )
+    window_scores = torch.pow(2.0, -average / max(denominator, 1e-12))
     return pad_window_scores(window_scores[None], window, length)[0]
 
 
@@ -176,31 +186,13 @@ def score(series: Tensor, config: IsolationForestConfig) -> Tensor:
     series = validate_series(series, min_length=window)
     features = windowed_features(series, window, config.normalize)
     return torch.stack(
-        [
-            _score_item(item, config, window, series.shape[1])
-            for item in features
-        ]
+        [_score_item(item, config, window, series.shape[1]) for item in features]
     )
 
 
 # ---------------------------------------------------------------------------
 # TSB-AD evaluation entry point (spec form C: baseline evaluate).
 
-from collections.abc import Mapping
-from dataclasses import replace
-from pathlib import Path
-from typing import Any
-
-import lightning as L
-import pandas as pd
-
-from ...benchmark import (
-    has_score,
-    load_split,
-    save_score,
-    unit_dir,
-    write_metrics,
-)
 
 # TSB-AD optimal HP mapped to this config: n_estimators -> trees,
 # max_features -> max_features. TSB-AD-M entry
@@ -213,9 +205,7 @@ DEFAULT_HP: Mapping[str, Any] = {"window": 100, "trees": 25, "max_features": 0.8
 _UNI_HP: Mapping[str, Any] = {"window": 100, "trees": 200, "max_features": 1.0}
 
 
-def _config(
-    full: np.ndarray, hp: Mapping[str, Any] | None
-) -> IsolationForestConfig:
+def _config(full: np.ndarray, hp: Mapping[str, Any] | None) -> IsolationForestConfig:
     """Config with the channel-selected TSB-AD optimal HP, overridden by ``hp``."""
     base = _UNI_HP if full.shape[1] == 1 else DEFAULT_HP
     return replace(IsolationForestConfig(), **{**base, **(hp or {})})

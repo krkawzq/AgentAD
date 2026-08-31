@@ -14,8 +14,12 @@ REPO_URL = "https://github.com/CSTCloudOps/datasets.git"
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Download EasyTSAD datasets")
-    parser.add_argument("--output-dir", type=Path, default=Path("data/raw/EasyTSAD"),
-                        help="output directory (default: data/raw/EasyTSAD)")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("data/raw/EasyTSAD"),
+        help="output directory (default: data/raw/EasyTSAD)",
+    )
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -24,8 +28,7 @@ def main() -> None:
         print("skip (already cloned)")
     else:
         print(f"cloning {REPO_URL} -> {args.output_dir}")
-        subprocess.run(["git", "clone", REPO_URL, str(args.output_dir)],
-                       check=True)
+        subprocess.run(["git", "clone", REPO_URL, str(args.output_dir)], check=True)
 
     # 清理 git 元数据，仅保留数据
     shutil.rmtree(args.output_dir / ".git", ignore_errors=True)

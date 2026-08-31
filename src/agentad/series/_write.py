@@ -148,9 +148,7 @@ def _validate_parquet_axes(
 
 def _validate_empty_index_round_trip(index: pd.Index, where: str) -> None:
     try:
-        restored = _parquet_round_trip(
-            pd.DataFrame(index=index), index=True
-        ).index
+        restored = _parquet_round_trip(pd.DataFrame(index=index), index=True).index
     except (TypeError, ValueError) as error:
         raise TypeError(
             f"{where} cannot be represented losslessly in Parquet"
@@ -306,9 +304,7 @@ def write(
                 "name": labels.columns.name,
             }
         else:
-            _validate_empty_index_round_trip(
-                labels.columns, "labels column axis"
-            )
+            _validate_empty_index_round_trip(labels.columns, "labels column axis")
         _validate_parquet_axes(
             stored_labels,
             "labels column axis",

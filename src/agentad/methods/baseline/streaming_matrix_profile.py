@@ -21,20 +21,20 @@ import pandas as pd
 import torch
 from torch import Tensor
 
-from ._common import (
-    combine_channels,
-    pad_window_scores,
-    per_channel,
-    znormalized_window_min,
-    zscore,
-)
-from .._utils import sliding_windows
 from ...benchmark import (
     has_score,
     load_split,
     save_score,
     unit_dir,
     write_metrics,
+)
+from .._utils import sliding_windows
+from ._common import (
+    combine_channels,
+    pad_window_scores,
+    per_channel,
+    znormalized_window_min,
+    zscore,
 )
 
 
@@ -106,9 +106,7 @@ def evaluate(
     """
     split = load_split(dataset_dir, artifact, partition=partition)
     unit = unit_dir(output_root, "StreamingMatrixProfile", split)
-    config = replace(
-        StreamingMatrixProfileConfig(), **{**DEFAULT_HP, **(hp or {})}
-    )
+    config = replace(StreamingMatrixProfileConfig(), **{**DEFAULT_HP, **(hp or {})})
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
             continue

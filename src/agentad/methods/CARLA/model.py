@@ -658,9 +658,7 @@ class CARLAClassificationLightningModule(L.LightningModule):
                 )
             for head, probability in enumerate(probabilities):
                 self._epoch_counts[head] += (
-                    probability.argmax(1).cpu().bincount(
-                        minlength=self.config.clusters
-                    )
+                    probability.argmax(1).cpu().bincount(minlength=self.config.clusters)
                 )
         elif (
             self._majority_clusters is not None
@@ -676,9 +674,7 @@ class CARLAClassificationLightningModule(L.LightningModule):
                 )
             # The original scores validation windows as 1 - P(majority).
             normal = int(self._majority_clusters[0])
-            self._val_scores.append(
-                (1 - probabilities[0][:, normal]).detach().cpu()
-            )
+            self._val_scores.append((1 - probabilities[0][:, normal]).detach().cpu())
             self._val_labels.append((labels == 1).cpu())
         for name in ("total", "consistency", "inconsistency", "entropy"):
             metric = "loss" if name == "total" else name
@@ -740,8 +736,8 @@ class CARLAClassificationLightningModule(L.LightningModule):
                     continue
                 found = True
                 for head, logits in enumerate(self.model(anchors).logits):
-                    counts[head] += logits.argmax(1).cpu().bincount(
-                        minlength=self.config.clusters
+                    counts[head] += (
+                        logits.argmax(1).cpu().bincount(minlength=self.config.clusters)
                     )
         return counts if found else None
 

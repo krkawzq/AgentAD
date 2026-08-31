@@ -441,9 +441,7 @@ class DADA(nn.Module):
                 return uncertainty
             mean_reconstruction = output.reconstructions.mean(0)
             if error_fn is None:
-                reconstruction = (
-                    mean_reconstruction - x
-                ).square().mean(dim=2)
+                reconstruction = (mean_reconstruction - x).square().mean(dim=2)
             else:
                 reconstruction = error_fn(mean_reconstruction, x).mean(dim=2)
             return (

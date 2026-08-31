@@ -22,14 +22,6 @@ import pandas as pd
 import torch
 from torch import Tensor
 
-from ._common import (
-    combine_channels,
-    infer_period,
-    pad_window_scores,
-    per_channel,
-    znormalized_window_min,
-)
-from .._utils import sliding_windows
 from ...benchmark import (
     has_score,
     load_split,
@@ -38,6 +30,14 @@ from ...benchmark import (
     write_metrics,
 )
 from ...evaluation.period import find_period
+from .._utils import sliding_windows
+from ._common import (
+    combine_channels,
+    infer_period,
+    pad_window_scores,
+    per_channel,
+    znormalized_window_min,
+)
 
 
 @dataclass(frozen=True, slots=True)

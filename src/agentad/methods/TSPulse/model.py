@@ -170,9 +170,7 @@ class TSPulse(nn.Module):
         distribution but shrinks each epoch by that factor.
         """
         batch, time, channels = series.shape
-        mask = torch.ones(
-            batch, time, channels, dtype=torch.bool, device=series.device
-        )
+        mask = torch.ones(batch, time, channels, dtype=torch.bool, device=series.device)
         window_start = max(0, time - self.config.aggregation_length)
         count = (time - window_start) // self.patch_length
         if count < 1:
@@ -327,7 +325,9 @@ class TSPulse(nn.Module):
         else:
             minimum = minimum * (1 + self.patch_length)
         above = score > minimum
-        adjusted = torch.where(above, score / self.config.least_significant_score, score)
+        adjusted = torch.where(
+            above, score / self.config.least_significant_score, score
+        )
         scale = torch.where(
             above.any(1, keepdim=True),
             score.new_ones(()),
@@ -389,9 +389,9 @@ class TSPulse(nn.Module):
                 score, scale = self._least_significant_gate(
                     score, series, predictive=mode == "forecast"
                 )
-                score = self._normalize_score(
-                    score.pow(self.config.score_exponent)
-                ) * scale
+                score = (
+                    self._normalize_score(score.pow(self.config.score_exponent)) * scale
+                )
                 if mode != "forecast" and self.config.smoothing_window > 1:
                     score = self._moving_average(score)
                 mode_scores.append(score)
@@ -522,7 +522,9 @@ class TSPulseLightningModule(ValidationEarlyStopping, L.LightningModule):
         return self.model.score(series, batch_size=self.config.finetune_batch_size)
 
     def configure_optimizers(self) -> OptimizerLRSchedulerConfig:
-        parameters = [parameter for parameter in self.parameters() if parameter.requires_grad]
+        parameters = [
+            parameter for parameter in self.parameters() if parameter.requires_grad
+        ]
         optimizer = torch.optim.AdamW(
             parameters,
             lr=self.config.finetune_learning_rate,

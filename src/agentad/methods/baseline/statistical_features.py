@@ -22,12 +22,25 @@ correlations. Multivariate input is scored per channel and averaged.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
+import lightning as L
+import numpy as np
+import pandas as pd
 import torch
 from torch import Tensor
 from torch.nn import functional as F
 
+from ...benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
 from ._common import combine_channels, per_channel
 
 _EPS = 1e-12
@@ -71,7 +84,9 @@ def _clean(x: Tensor) -> Tensor:
     following = following.flip(0).cummin(0).values.flip(0)
     safe = torch.where(finite, x, torch.zeros_like(x))
     left = torch.where(previous >= 0, safe[previous.clamp_min(0)], torch.zeros_like(x))
-    right = torch.where(following < n, safe[following.clamp_max(n - 1)], torch.zeros_like(x))
+    right = torch.where(
+        following < n, safe[following.clamp_max(n - 1)], torch.zeros_like(x)
+    )
     bad = ~finite
     both = bad & (previous >= 0) & (following < n)
     alpha = ((index - previous) / (following - previous).clamp_min(1)).to(x.dtype)
@@ -84,7 +99,11 @@ def _clean(x: Tensor) -> Tensor:
 def _shift(x: Tensor, periods: int, fill: float) -> Tensor:
     if periods == 0 or x.numel() == 0:
         return x.clone()
-    out = F.pad(x, (periods, 0), value=fill) if periods > 0 else F.pad(x, (0, -periods), value=fill)
+    out = (
+        F.pad(x, (periods, 0), value=fill)
+        if periods > 0
+        else F.pad(x, (0, -periods), value=fill)
+    )
     if periods > 0:
         return out[: x.numel()]
     return out[-x.numel() :]
@@ -131,8 +150,10 @@ def _rolling_corr_lag(x: Tensor, lag: int, window: int) -> Tensor:
     sum_xx = _window_sums(masked_x.square(), window, left)
     sum_yy = _window_sums(masked_y.square(), window, left)
     numerator = count * sum_xy - sum_x * sum_y
-    denominator = ((count * sum_xx - sum_x.square()).clamp_min(0) *
-                   (count * sum_yy - sum_y.square()).clamp_min(0)).sqrt()
+    denominator = (
+        (count * sum_xx - sum_x.square()).clamp_min(0)
+        * (count * sum_yy - sum_y.square()).clamp_min(0)
+    ).sqrt()
     correlation = torch.where(
         (count >= 3) & (denominator > _EPS),
         numerator / denominator.clamp_min(_EPS),
@@ -321,7 +342,9 @@ def _score_channel(x: Tensor, config: StatisticalFeaturesConfig) -> Tensor:
 
     difference = (x - _shift(x, 1, float(x[0]))).abs()
     first_difference = x - _shift(x, 1, float(x[0]))
-    jerk = (first_difference - _shift(first_difference, 1, float(first_difference[0]))).abs()
+    jerk = (
+        first_difference - _shift(first_difference, 1, float(first_difference[0]))
+    ).abs()
     local_mean = _rolling_mean(x, short_window)
     residual = x - local_mean
     residual_abs = residual.abs()
@@ -393,9 +416,7 @@ def _score_channel(x: Tensor, config: StatisticalFeaturesConfig) -> Tensor:
     ewma_residual = (x - _shift(_ewma(x, short_window), 1, float(center))).abs()
     if period is not None and period < n:
         periodic_error = (x - _shift(x, period, float(center))).abs()
-        repeatability_error = (
-            impulse - _shift(impulse, period, 0.0)
-        ).abs()
+        repeatability_error = (impulse - _shift(impulse, period, 0.0)).abs()
     else:
         periodic_error = ewma_residual
         repeatability_error = _rolling_std(impulse, window) / (
@@ -427,21 +448,6 @@ def score(series: Tensor, config: StatisticalFeaturesConfig) -> Tensor:
 # TSB-AD baseline evaluation (spec: tmp/method_train_eval_spec.md §4 shape C)
 # ---------------------------------------------------------------------------
 
-from collections.abc import Mapping
-from pathlib import Path
-from typing import Any
-
-import lightning as L
-import numpy as np
-import pandas as pd
-
-from ...benchmark import (
-    has_score,
-    load_split,
-    save_score,
-    unit_dir,
-    write_metrics,
-)
 
 METHOD_NAME = "StatisticalFeatures"
 

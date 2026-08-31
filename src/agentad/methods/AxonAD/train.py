@@ -59,9 +59,7 @@ def build_config(
         if name not in config_names:
             raise ValueError(f"unknown AxonAD hyperparameter: {key!r}")
         overrides[name] = value
-    base = AxonADConfig.original_optimal_multivariate(
-        input_features=input_features
-    )
+    base = AxonADConfig.original_optimal_multivariate(input_features=input_features)
     return replace(base, **overrides)
 
 

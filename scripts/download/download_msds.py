@@ -17,10 +17,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 
-URL = (
-    "https://zenodo.org/api/records/3549604/files/"
-    "concurrent%20data.zip/content"
-)
+URL = "https://zenodo.org/api/records/3549604/files/concurrent%20data.zip/content"
 MD5 = "be2ba2f17f774e7f3f045dcf5f406ff0"
 
 
@@ -37,9 +34,10 @@ def download(url: str, destination: Path) -> None:
         return
     partial = destination.with_suffix(destination.suffix + ".part")
     try:
-        with urllib.request.urlopen(url, timeout=120) as response, partial.open(
-            "wb"
-        ) as handle:
+        with (
+            urllib.request.urlopen(url, timeout=120) as response,
+            partial.open("wb") as handle,
+        ):
             shutil.copyfileobj(response, handle, length=16 * 1024 * 1024)
         partial.replace(destination)
     except BaseException:
@@ -62,9 +60,7 @@ def safe_extract(archive: Path, destination: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--output-dir", type=Path, default=Path("data/raw/AERCA/msds")
-    )
+    parser.add_argument("--output-dir", type=Path, default=Path("data/raw/AERCA/msds"))
     parser.add_argument(
         "--labels-path",
         type=Path,

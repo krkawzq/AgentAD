@@ -25,6 +25,7 @@ class _TemporalBlock(nn.Module):
     to a point-wise linear map. This implementation runs the convolution the
     fork's own docstring describes, mixing adjacent time steps.
     """
+
     def __init__(self, input_dim: int, output_dim: int, kernel: int) -> None:
         super().__init__()
         self.conv = nn.Conv1d(input_dim, output_dim, kernel, padding=kernel // 2)
@@ -197,9 +198,7 @@ class ScatterAD(nn.Module):
                     dim=2,
                 )
             )
-        consistency = (
-            -torch.cat(pairs, dim=1).sigmoid().log().mean()
-        )
+        consistency = -torch.cat(pairs, dim=1).sigmoid().log().mean()
         return ScatterADLoss(
             scattering + temporal + consistency,
             scattering,

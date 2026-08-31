@@ -111,9 +111,7 @@ def train_dataset(
         raise ValueError("train_dataset requires at least one series")
     L.seed_everything(seed)
     mean, std = _normalization_stats(series)
-    normalized = [
-        (np.asarray(data, dtype=np.float64) - mean) / std for data in series
-    ]
+    normalized = [(np.asarray(data, dtype=np.float64) - mean) / std for data in series]
     train_part, val_part = _split_80_20(normalized)
     config = _build_config(normalized[0].shape[1], hp)
     module = AERCALightningModule(config)
@@ -151,12 +149,9 @@ def train(
     """Train the dataset-level AERCA of one artifact and store its checkpoint."""
     split = load_split(dataset_dir, artifact, partition=partition)
     if split.train is None:
-        raise FileNotFoundError(
-            f"AERCA needs a normal train prefix: {split.unit_name}"
-        )
+        raise FileNotFoundError(f"AERCA needs a normal train prefix: {split.unit_name}")
     checkpoint = (
-        checkpoints_dir(unit_dir(output_root, METHOD_NAME, split))
-        / f"{split.name}.pt"
+        checkpoints_dir(unit_dir(output_root, METHOD_NAME, split)) / f"{split.name}.pt"
     )
     if resume and checkpoint.is_file():
         return

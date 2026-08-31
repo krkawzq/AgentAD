@@ -13,14 +13,26 @@ sample.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any, Mapping
 
+import lightning as L
+import numpy as np
+import pandas as pd
 import torch
 from torch import Tensor
 
-from .kmeans_distance import _kmeans_centers
-from ._common import standardize_points
+from ...benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
 from .._utils import validate_series
+from ._common import standardize_points
+from .kmeans_distance import _kmeans_centers
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,14 +90,10 @@ def _split(
     return order[:boundary], order[boundary:]
 
 
-def _score_item(
-    points: Tensor, config: ClusterLocalOutlierFactorConfig
-) -> Tensor:
+def _score_item(points: Tensor, config: ClusterLocalOutlierFactorConfig) -> Tensor:
     count = points.shape[0]
     k = min(config.clusters, count)
-    centers = _kmeans_centers(
-        points, clusters=k, iterations=50, seed=config.seed
-    )
+    centers = _kmeans_centers(points, clusters=k, iterations=50, seed=config.seed)
     distances = torch.cdist(points, centers)
     assignment = distances.argmin(dim=1)
     sizes = torch.bincount(assignment, minlength=k).to(points.dtype)
@@ -121,22 +129,6 @@ def score(series: Tensor, config: ClusterLocalOutlierFactorConfig) -> Tensor:
 # TSB-AD evaluation entry (form C in tmp/method_train_eval_spec.md); the
 # detector above is frozen and reused as-is.
 
-from dataclasses import replace
-from pathlib import Path
-from typing import Any, Mapping
-
-import lightning as L
-import numpy as np
-import pandas as pd
-import torch
-
-from ...benchmark import (
-    has_score,
-    load_split,
-    save_score,
-    unit_dir,
-    write_metrics,
-)
 
 # TSB-AD lists CBLOF in no Optimal_Uni entry, so the multivariate optimum
 # (HP_list.py Optimal_Multi_algo_HP_dict['CBLOF'] = n_clusters 4, alpha 0.6)

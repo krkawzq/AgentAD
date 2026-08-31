@@ -499,15 +499,12 @@ def test_webui_keeps_tab_sources_isolated_and_releases_closed_views(
     first_overview = app.api("/api/open", {"path": [first.name]})
     second_overview = app.api("/api/open", {"path": [second.name]})
     assert first_overview["source"] != second_overview["source"]
-    assert app.api(
-        "/api/items", {"source": [first_overview["source"]]}
-    )["total"] == 1
-    assert app.api(
-        "/api/items", {"source": [second_overview["source"]]}
-    )["total"] == 3
-    assert app.api(
-        "/api/overview", {"source": [first_overview["source"]]}
-    )["path"] == first.name
+    assert app.api("/api/items", {"source": [first_overview["source"]]})["total"] == 1
+    assert app.api("/api/items", {"source": [second_overview["source"]]})["total"] == 3
+    assert (
+        app.api("/api/overview", {"source": [first_overview["source"]]})["path"]
+        == first.name
+    )
 
     closed = app.api("/api/close", {"source": [first_overview["source"]]})
     assert closed["closed"] == first_overview["source"]
@@ -532,7 +529,9 @@ def test_csv_contract_loads_series_features_labels_metadata_and_datetimes(
 
     assert collection.ids == ("alpha", "beta")
     np.testing.assert_array_equal(collection.offsets, [0, 2, 3])
-    np.testing.assert_array_equal(collection.data, [[1.0, 10.0], [2.0, 11.0], [3.0, 12.0]])
+    np.testing.assert_array_equal(
+        collection.data, [[1.0, 10.0], [2.0, 11.0], [3.0, 12.0]]
+    )
     assert collection.features.index.tolist() == ["temperature", "pressure"]
     assert collection.labels.columns.tolist() == ["is_anomaly"]
     assert collection[0].meta["split"] == "train"

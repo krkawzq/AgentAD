@@ -20,8 +20,12 @@ FILE_ID = "1NF7VEefXCmXuWNbnNe858WvQAkJ_7wuP"
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Download LangTime dataset")
-    parser.add_argument("--output-dir", type=Path, default=Path("data/raw/LangTime"),
-                        help="output directory (default: data/raw/LangTime)")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("data/raw/LangTime"),
+        help="output directory (default: data/raw/LangTime)",
+    )
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -33,8 +37,9 @@ def main() -> None:
     zip_path = args.output_dir / "LangTime_data.zip"
     if not zip_path.exists():
         print("downloading LangTime_data.zip (~355MB) from Google Drive...")
-        gdown.download(f"https://drive.google.com/uc?id={FILE_ID}",
-                       str(zip_path), quiet=False)
+        gdown.download(
+            f"https://drive.google.com/uc?id={FILE_ID}", str(zip_path), quiet=False
+        )
 
     print(f"extracting: {zip_path.name} -> {args.output_dir}")
     tmp = args.output_dir / "_tmp"

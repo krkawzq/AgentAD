@@ -203,9 +203,7 @@ class KANADLightningModule(ValidationEarlyStopping, L.LightningModule):
         return self.model.window_score(windows, targets)
 
     def configure_optimizers(self) -> OptimizerLRSchedulerConfig:
-        optimizer = torch.optim.Adam(
-            self.parameters(), lr=self.config.learning_rate
-        )
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.config.learning_rate)
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer,
             step_size=self.config.scheduler_step_size,

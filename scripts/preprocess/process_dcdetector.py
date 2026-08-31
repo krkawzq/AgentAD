@@ -128,9 +128,7 @@ def main() -> None:
             )
             files = [path for path in files if "__MACOSX" not in path.parts]
             if not files:
-                print(
-                    f"{SOURCE}: skipped {raw_dataset_dir.name}: no supported files"
-                )
+                print(f"{SOURCE}: skipped {raw_dataset_dir.name}: no supported files")
                 continue
             grouped: dict[str, dict[str | None, list[Path]]] = defaultdict(
                 lambda: defaultdict(list)

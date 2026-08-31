@@ -11,13 +11,27 @@ dominates the score. Window scores center-align to points.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any
 
+import lightning as L
+import numpy as np
+import pandas as pd
 import torch
 from torch import Tensor
 
-from ._common import infer_period, pad_window_scores, windowed_features
+from ...benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
+from ...evaluation.period import find_period
 from .._utils import validate_series
+from ._common import infer_period, pad_window_scores, windowed_features
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,10 +47,7 @@ class PrincipalComponentConfig:
             raise ValueError("window must be positive when provided")
         if isinstance(self.components, int) and self.components < 1:
             raise ValueError("components must be positive when integral")
-        if (
-            isinstance(self.components, float)
-            and not 0.0 < self.components <= 1.0
-        ):
+        if isinstance(self.components, float) and not 0.0 < self.components <= 1.0:
             raise ValueError("fractional components must be in (0, 1]")
 
 
@@ -105,33 +116,13 @@ def score(series: Tensor, config: PrincipalComponentConfig) -> Tensor:
     series = validate_series(series, min_length=window)
     features = windowed_features(series, window, config.normalize)
     return torch.stack(
-        [
-            _score_item(item, config, window, series.shape[1])
-            for item in features
-        ]
+        [_score_item(item, config, window, series.shape[1]) for item in features]
     )
 
 
 # ---------------------------------------------------------------------------
 # TSB-AD evaluation entry point (spec form C: baseline evaluate).
 
-from collections.abc import Mapping
-from dataclasses import replace
-from pathlib import Path
-from typing import Any
-
-import lightning as L
-import numpy as np
-import pandas as pd
-
-from ...benchmark import (
-    has_score,
-    load_split,
-    save_score,
-    unit_dir,
-    write_metrics,
-)
-from ...evaluation.period import find_period
 
 # TSB-AD optimal HP mapped to this config: n_components -> components.
 # TSB-AD-M entry Optimal_Multi_algo_HP_dict['PCA'] = {'n_components':
@@ -143,9 +134,7 @@ DEFAULT_HP: Mapping[str, Any] = {"window": 100, "components": 0.25}
 _UNI_HP: Mapping[str, Any] = {"components": None}
 
 
-def _config(
-    full: np.ndarray, hp: Mapping[str, Any] | None
-) -> PrincipalComponentConfig:
+def _config(full: np.ndarray, hp: Mapping[str, Any] | None) -> PrincipalComponentConfig:
     """Config with the channel-selected TSB-AD optimal HP, overridden by ``hp``.
 
     Univariate runs take the Sub_PCA window: the rank-1 period of the

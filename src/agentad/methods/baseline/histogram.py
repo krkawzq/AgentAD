@@ -9,13 +9,27 @@ scores center-align to points with boundary replication.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
+import lightning as L
+import numpy as np
+import pandas as pd
 import torch
 from torch import Tensor
 
-from ._common import infer_period, pad_window_scores, windowed_features
+from ...benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
+from ...evaluation.period import find_period
 from .._utils import validate_series
+from ._common import infer_period, pad_window_scores, windowed_features
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,9 +73,13 @@ def _histograms(features: Tensor, bins: int, alpha: float) -> tuple[Tensor, Tens
     ).T  # [count, width]
     assignment = (indices - 1).clamp(0, bins - 1)
     counts = (
-        assignment[None, :, :]
-        == torch.arange(bins, device=features.device)[:, None, None]
-    ).sum(dim=1).to(features.dtype)  # [bins, width]
+        (
+            assignment[None, :, :]
+            == torch.arange(bins, device=features.device)[:, None, None]
+        )
+        .sum(dim=1)
+        .to(features.dtype)
+    )  # [bins, width]
     density = counts / (count * widths)
     return torch.log2(density + alpha), assignment
 
@@ -82,10 +100,7 @@ def score(series: Tensor, config: HistogramConfig) -> Tensor:
     series = validate_series(series, min_length=window)
     features = windowed_features(series, window, config.normalize)
     return torch.stack(
-        [
-            _score_item(item, config, window, series.shape[1])
-            for item in features
-        ]
+        [_score_item(item, config, window, series.shape[1]) for item in features]
     )
 
 
@@ -93,22 +108,6 @@ def score(series: Tensor, config: HistogramConfig) -> Tensor:
 # TSB-AD baseline evaluation (spec: tmp/method_train_eval_spec.md §4 shape C)
 # ---------------------------------------------------------------------------
 
-from collections.abc import Mapping
-from pathlib import Path
-from typing import Any
-
-import lightning as L
-import numpy as np
-import pandas as pd
-
-from ...benchmark import (
-    has_score,
-    load_split,
-    save_score,
-    unit_dir,
-    write_metrics,
-)
-from ...evaluation.period import find_period
 
 METHOD_NAME = "Histogram"
 

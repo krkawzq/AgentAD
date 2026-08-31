@@ -14,7 +14,12 @@ from numba import njit
 from numpy.typing import ArrayLike, NDArray
 
 from ._types import FirstHit, PRF1, PointMetrics
-from ._validation import binary_array, non_negative_integer, threshold_grid, validate_pair
+from ._validation import (
+    binary_array,
+    non_negative_integer,
+    threshold_grid,
+    validate_pair,
+)
 
 EventScale = Literal["squeeze", "log", "sqrt", "raw"]
 
@@ -595,9 +600,7 @@ def best_event_adjusted_f1(
     meaning and constraints as in :func:`event_adjusted_prf`.
     """
     labels, scores = validate_pair(y_true, y_score)
-    return _event_adjusted_prepared(
-        labels, scores, None, scale=scale, base=base
-    ).f1
+    return _event_adjusted_prepared(labels, scores, None, scale=scale, base=base).f1
 
 
 def _k_delay_prepared(

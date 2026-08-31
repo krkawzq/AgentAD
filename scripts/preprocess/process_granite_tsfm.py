@@ -63,7 +63,9 @@ def zafnoo_series(
         return
 
     timestamp_column = "date" if "date" in frame.columns else str(frame.columns[0])
-    feature_columns = [str(column) for column in frame.columns if column != timestamp_column]
+    feature_columns = [
+        str(column) for column in frame.columns if column != timestamp_column
+    ]
     if not feature_columns:
         raise ValueError("ZafNoo wide CSV has no feature columns")
     values = frame.loc[:, feature_columns].apply(pd.to_numeric, errors="raise")
@@ -93,7 +95,9 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("forks/granite-tsfm/tsfm_public/resources/data_config/zafnoo.yaml"),
+        default=Path(
+            "forks/granite-tsfm/tsfm_public/resources/data_config/zafnoo.yaml"
+        ),
     )
     parser.add_argument("--output-dir", type=Path, default=Path("data/processed"))
     args = parser.parse_args()

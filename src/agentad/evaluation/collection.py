@@ -133,9 +133,7 @@ class EvaluationResult:
         selected = [name for name in self.metric_columns if name in values]
         return pd.Series({name: values[name] for name in selected}, dtype=np.float64)
 
-    def anomalous_summary(
-        self, stat: Literal["mean", "median"] = "mean"
-    ) -> pd.Series:
+    def anomalous_summary(self, stat: Literal["mean", "median"] = "mean") -> pd.Series:
         """Macro-aggregate only series containing labelled anomaly points.
 
         ``stat`` follows :meth:`summary`. This requires the ``n_anomalies``
@@ -500,9 +498,7 @@ def evaluate_collection(
             row["n_events"] = int(
                 np.count_nonzero(
                     (series.labels != 0)
-                    & np.concatenate(
-                        (np.array([True]), series.labels[:-1] == 0)
-                    )
+                    & np.concatenate((np.array([True]), series.labels[:-1] == 0))
                 )
             )
             started = time.perf_counter()

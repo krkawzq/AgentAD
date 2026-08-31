@@ -21,7 +21,6 @@ import torch
 from torch import Tensor
 from torch.nn import functional as F
 
-from ._common import combine_channels, per_channel
 from ...benchmark import (
     has_score,
     load_split,
@@ -29,6 +28,7 @@ from ...benchmark import (
     unit_dir,
     write_metrics,
 )
+from ._common import combine_channels, per_channel
 
 
 @dataclass(frozen=True, slots=True)

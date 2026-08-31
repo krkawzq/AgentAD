@@ -45,9 +45,7 @@ def zafnoo_member(archive: zipfile.ZipFile) -> zipfile.ZipInfo:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--output-dir", type=Path, default=Path("data/raw/GraniteTSFM")
-    )
+    parser.add_argument("--output-dir", type=Path, default=Path("data/raw/GraniteTSFM"))
     parser.add_argument("--archive", type=Path)
     parser.add_argument("--keep-archive", action="store_true")
     args = parser.parse_args()

@@ -15,13 +15,27 @@ points.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any
 
+import lightning as L
+import numpy as np
+import pandas as pd
 import torch
 from torch import Tensor
 
-from ._common import infer_period, pad_window_scores, windowed_features
+from ...benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
+from ...evaluation.period import find_period
 from .._utils import validate_series
+from ._common import infer_period, pad_window_scores, windowed_features
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,9 +60,7 @@ class MinimumCovarianceDeterminantConfig:
             raise ValueError("starts must be positive")
 
 
-def _mahalanobis(
-    rows: Tensor, mean: Tensor, precision: Tensor
-) -> Tensor:
+def _mahalanobis(rows: Tensor, mean: Tensor, precision: Tensor) -> Tensor:
     centered = rows - mean
     return (centered @ precision * centered).sum(dim=1).sqrt()
 
@@ -128,9 +140,7 @@ def _score_item(
 
 
 @torch.inference_mode()
-def score(
-    series: Tensor, config: MinimumCovarianceDeterminantConfig
-) -> Tensor:
+def score(series: Tensor, config: MinimumCovarianceDeterminantConfig) -> Tensor:
     window = config.window or infer_period(series[0, :, 0])
     series = validate_series(series, min_length=window)
     # Concentration steps iterate covariance inverses; float64 keeps them
@@ -138,10 +148,7 @@ def score(
     # direction.
     features = windowed_features(series.to(torch.float64), window, config.normalize)
     scores = torch.stack(
-        [
-            _score_item(item, config, window, series.shape[1])
-            for item in features
-        ]
+        [_score_item(item, config, window, series.shape[1]) for item in features]
     )
     return scores.to(series.dtype)
 
@@ -149,23 +156,6 @@ def score(
 # ---------------------------------------------------------------------------
 # TSB-AD evaluation entry point (spec form C: baseline evaluate).
 
-from collections.abc import Mapping
-from dataclasses import replace
-from pathlib import Path
-from typing import Any
-
-import lightning as L
-import numpy as np
-import pandas as pd
-
-from ...benchmark import (
-    has_score,
-    load_split,
-    save_score,
-    unit_dir,
-    write_metrics,
-)
-from ...evaluation.period import find_period
 
 # TSB-AD optimal HP mapped to this config: support_fraction ->
 # support_fraction. TSB-AD-M entry Optimal_Multi_algo_HP_dict['MCD'] =
@@ -227,9 +217,9 @@ def evaluate(
             else np.asarray(test_item.data, dtype=np.float64)
         )
         train_points = len(train_item) if train_item is not None else None
-        scores = score(
-            torch.from_numpy(full)[None], _config(full, train_points, hp)
-        )[0].numpy()
+        scores = score(torch.from_numpy(full)[None], _config(full, train_points, hp))[
+            0
+        ].numpy()
         if scores.shape != (full.shape[0],) or not np.isfinite(scores).all():
             raise RuntimeError(
                 f"MinimumCovarianceDeterminant: invalid scores for {series_id}"

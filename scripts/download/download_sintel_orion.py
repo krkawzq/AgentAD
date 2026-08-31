@@ -40,10 +40,18 @@ def download_file(session: requests.Session, url: str, save_path: Path) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Download Sintel-Orion datasets")
-    parser.add_argument("--output-dir", type=Path, default=Path("data/raw/Sintel-Orion"),
-                        help="output directory (default: data/raw/Sintel-Orion)")
-    parser.add_argument("--dataset", nargs="*", default=None,
-                        help="specific dataset names; default: all")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("data/raw/Sintel-Orion"),
+        help="output directory (default: data/raw/Sintel-Orion)",
+    )
+    parser.add_argument(
+        "--dataset",
+        nargs="*",
+        default=None,
+        help="specific dataset names; default: all",
+    )
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -72,7 +80,9 @@ def main() -> None:
             save_path = args.output_dir / ds_name / fname
             if download_file(session, f"{BASE_URL}/{fname}", save_path):
                 downloaded += 1
-        print(f"{ds_name}: {downloaded} signal files (of {total} attempted in this run)")
+        print(
+            f"{ds_name}: {downloaded} signal files (of {total} attempted in this run)"
+        )
 
     print(f"done: {args.output_dir} ({downloaded} files)")
 

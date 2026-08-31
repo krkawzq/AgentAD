@@ -15,14 +15,26 @@ binary search tree, so points isolated near the root score close to one.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any
 
+import lightning as L
 import numpy as np
+import pandas as pd
 import torch
 from torch import Tensor
 
-from ._common import expected_search_depth, standardize_points
+from ...benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
 from .._utils import validate_series
+from ._common import expected_search_depth, standardize_points
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,26 +141,20 @@ def _tree_depths(
     return depths + table[leaf_sizes]
 
 
-def _score_item(
-    points: Tensor, config: ExtendedIsolationForestConfig
-) -> Tensor:
+def _score_item(points: Tensor, config: ExtendedIsolationForestConfig) -> Tensor:
     rows, width = points.shape
     if rows == 0:
         return points.new_zeros(0)
     sample = min(config.sample_size, rows)
     limit = int(math.ceil(math.log2(sample)))
-    extension = (
-        width - 1 if config.extension_level is None else config.extension_level
-    )
+    extension = width - 1 if config.extension_level is None else config.extension_level
     extension = min(extension, width - 1)
     denominator = expected_search_depth(sample)
     generator = np.random.default_rng(config.seed)
     total = points.new_zeros(rows)
     for _ in range(config.trees):
         chosen = generator.choice(rows, size=sample, replace=False)
-        tree = _grow_tree(
-            points[chosen].cpu().numpy(), limit, extension, generator
-        )
+        tree = _grow_tree(points[chosen].cpu().numpy(), limit, extension, generator)
         total = total + _tree_depths(points, *tree)
     average = total / config.trees
     return torch.pow(2.0, -average / max(denominator, 1e-12))
@@ -167,21 +173,6 @@ def score(series: Tensor, config: ExtendedIsolationForestConfig) -> Tensor:
 # ---------------------------------------------------------------------------
 # TSB-AD evaluation entry point (spec form C: baseline evaluate).
 
-from collections.abc import Mapping
-from dataclasses import replace
-from pathlib import Path
-from typing import Any
-
-import lightning as L
-import pandas as pd
-
-from ...benchmark import (
-    has_score,
-    load_split,
-    save_score,
-    unit_dir,
-    write_metrics,
-)
 
 # TSB-AD optimal HP mapped to this config: n_trees -> trees. TSB-AD-M
 # entry Optimal_Multi_algo_HP_dict['EIF'] = {'n_trees': 50}. TSB-AD-U does

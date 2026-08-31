@@ -421,9 +421,7 @@ def test_tspulse_finetune_loss_and_zero_shot_score():
 
     with pytest.raises(ValueError, match="from_pretrained"):
         TSPulseZeroShot(config)
-    assert_finite_shape(
-        finetuned.score(torch.randn(1, 22, 2), batch_size=3), (1, 22)
-    )
+    assert_finite_shape(finetuned.score(torch.randn(1, 22, 2), batch_size=3), (1, 22))
 
 
 def test_time_rcd_loss_score_and_checkpoint_conversion(tmp_path):
@@ -832,7 +830,9 @@ def test_statistical_features_flags_anomaly_and_zeroes_constant_series():
     t = torch.arange(600, dtype=torch.float32)
     values = torch.sin(t * 0.05) + 0.05 * torch.randn(600)
     values[300:310] += 2.0
-    scores = statistical_features_score(values[None, :, None], StatisticalFeaturesConfig())
+    scores = statistical_features_score(
+        values[None, :, None], StatisticalFeaturesConfig()
+    )
     assert_finite_shape(scores, (1, 600))
     assert scores[0, 300:310].max() > scores[0, 100:200].max()
     constant = torch.full((1, 100, 1), 2.0)
@@ -877,15 +877,16 @@ def test_local_outlier_factor_matches_manual_reference():
     k_distance = distance.gather(1, neighbors)[:, -1]
     lrd = []
     for i in range(count):
-        reach = sum(
-            max(float(distance[i, j]), float(k_distance[j]))
-            for j in neighbors[i].tolist()
-        ) / 3
+        reach = (
+            sum(
+                max(float(distance[i, j]), float(k_distance[j]))
+                for j in neighbors[i].tolist()
+            )
+            / 3
+        )
         lrd.append(1.0 / (reach + 1e-10))
     lrd = torch.tensor(lrd)
-    expected = torch.tensor(
-        [lrd[neighbors[i]].mean() / lrd[i] for i in range(count)]
-    )
+    expected = torch.tensor([lrd[neighbors[i]].mean() / lrd[i] for i in range(count)])
     assert torch.allclose(scores[0], expected, atol=1e-4)
 
 
@@ -904,14 +905,10 @@ def test_connectivity_outlier_factor_matches_manual_reference():
         costs = []
         for j in range(k):
             costs.append(
-                min(
-                    float(distance[path[i, j + 1], path[i, m]])
-                    for m in range(j + 1)
-                )
+                min(float(distance[path[i, j + 1], path[i, m]]) for m in range(j + 1))
             )
         weight = sum(
-            2 * (k + 1 - (h + 1)) / ((k + 1) * k) * cost
-            for h, cost in enumerate(costs)
+            2 * (k + 1 - (h + 1)) / ((k + 1) * k) * cost for h, cost in enumerate(costs)
         )
         chaining.append(weight)
     expected = torch.tensor(
@@ -946,7 +943,9 @@ def test_copula_matches_empirical_copula_reference():
 
     columns = [ecdf(values[:, c]) for c in range(values.shape[1])]
     left = -torch.log(torch.stack(columns, dim=1))
-    right = -torch.log(torch.stack([ecdf(-values[:, c]) for c in range(values.shape[1])], dim=1))
+    right = -torch.log(
+        torch.stack([ecdf(-values[:, c]) for c in range(values.shape[1])], dim=1)
+    )
     centered = values - values.mean(0)
     moment2 = centered.square().mean(0)
     moment3 = centered.pow(3).mean(0)
@@ -1001,9 +1000,7 @@ def test_cluster_local_outlier_factor_flags_cluster_outliers_and_zeroes_constant
     assert scores[0, 200:210].min() > scores[0, :100].max()
     constant = torch.full((1, 100, 1), 2.0)
     assert torch.equal(
-        cluster_local_outlier_factor_score(
-            constant, ClusterLocalOutlierFactorConfig()
-        ),
+        cluster_local_outlier_factor_score(constant, ClusterLocalOutlierFactorConfig()),
         torch.zeros(1, 100),
     )
 

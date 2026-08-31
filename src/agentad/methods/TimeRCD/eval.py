@@ -85,9 +85,7 @@ def _load_model(
     return model.to(device=device)
 
 
-def _score_full(
-    model: TimeRCD, full: np.ndarray, device: torch.device
-) -> np.ndarray:
+def _score_full(model: TimeRCD, full: np.ndarray, device: torch.device) -> np.ndarray:
     """Zero-shot scores for one concatenated ``[T, C]`` full length."""
     # score() already applies the original protocol (per-channel z-scoring,
     # non-overlapping windows, softmax anomaly probability); batch_size only

@@ -61,9 +61,7 @@ class TSPulseConfig:
     masked_reconstruction_loss_weight: float = 1.0
     aggregation_length: int = 32
     smoothing_window: int = 8
-    score_modes: tuple[Literal["time", "frequency", "forecast"], ...] = (
-        "time",
-    )
+    score_modes: tuple[Literal["time", "frequency", "forecast"], ...] = ("time",)
     score_exponent: float = 1.0
     least_significant_scale: float = 0.0
     least_significant_score: float = 1.0
@@ -100,7 +98,9 @@ class TSPulseConfig:
                 raise ValueError(f"{name} must be positive")
         stride = self.patch_stride or self.patch_length
         if stride != self.patch_length:
-            raise ValueError("the original TSPulse does not support overlapping patches")
+            raise ValueError(
+                "the original TSPulse does not support overlapping patches"
+            )
         if self.context_length % self.patch_length:
             raise ValueError("context_length must be divisible by patch_length")
         if self.register_tokens < 0:
@@ -213,8 +213,6 @@ class TSPulseConfig:
     def original_configs(cls, *, input_features: int = 1) -> dict[str, Self]:
         return {
             "default": cls.original_default(input_features=input_features),
-            "tsb_zero_shot": cls.original_tsb_zero_shot(
-                input_features=input_features
-            ),
+            "tsb_zero_shot": cls.original_tsb_zero_shot(input_features=input_features),
             "tsb_finetune": cls.original_tsb_finetune(input_features=input_features),
         }

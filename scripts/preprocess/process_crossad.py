@@ -123,9 +123,7 @@ def process_long_datasets(
         print(f"{SOURCE}/{dataset}: {record['splits']}")
 
 
-def process_ucr(
-    dataset_root: Path, source_dir: Path, project_root: Path
-) -> None:
+def process_ucr(dataset_root: Path, source_dir: Path, project_root: Path) -> None:
     ucr_dir = dataset_root / "UCR_Anomaly_FullData"
     files = sorted(ucr_dir.glob("*.txt"))
     if not files:

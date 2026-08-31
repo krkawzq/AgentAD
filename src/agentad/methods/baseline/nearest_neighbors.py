@@ -9,14 +9,26 @@ score high. Window scores center-align to points with boundary replication.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Literal
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any, Literal, Mapping
 
+import lightning as L
+import numpy as np
+import pandas as pd
 import torch
 from torch import Tensor
 
-from ._common import infer_period, knn_search, pad_window_scores, windowed_features
+from ...benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
+from ...evaluation.period import find_period
 from .._utils import validate_series
+from ._common import infer_period, knn_search, pad_window_scores, windowed_features
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,33 +66,13 @@ def score(series: Tensor, config: NearestNeighborsConfig) -> Tensor:
     series = validate_series(series, min_length=window)
     features = windowed_features(series, window, config.normalize)
     return torch.stack(
-        [
-            _score_item(item, config, window, series.shape[1])
-            for item in features
-        ]
+        [_score_item(item, config, window, series.shape[1]) for item in features]
     )
 
 
 # TSB-AD evaluation entry (form C in tmp/method_train_eval_spec.md); the
 # detector above is frozen and reused as-is.
 
-from dataclasses import replace
-from pathlib import Path
-from typing import Any, Mapping
-
-import lightning as L
-import numpy as np
-import pandas as pd
-import torch
-
-from ...benchmark import (
-    has_score,
-    load_split,
-    save_score,
-    unit_dir,
-    write_metrics,
-)
-from ...evaluation.period import find_period
 
 # TSB-AD optimal HP (HP_list.py), selected per channel count in evaluate:
 # multivariate runs 'KNN' = {'n_neighbors': 50, 'method': 'mean'} at window 1

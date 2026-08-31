@@ -120,9 +120,9 @@ def test_delay_event_interval_and_tolerance_metrics():
 
     dense_event = np.array([0, 1, 1, 1, 1], dtype=np.uint8)
     event_labels = np.array([0, 1, 1, 1, 0], dtype=np.uint8)
-    assert event_adjusted_prf(event_labels, dense_event, scale="squeeze").f1 == pytest.approx(
-        2 / 3
-    )
+    assert event_adjusted_prf(
+        event_labels, dense_event, scale="squeeze"
+    ).f1 == pytest.approx(2 / 3)
 
     interval_labels = np.array([0, 1, 0, 1, 0], dtype=np.uint8)
     spanning_prediction = np.array([0, 1, 1, 1, 0], dtype=np.uint8)
@@ -130,8 +130,14 @@ def test_delay_event_interval_and_tolerance_metrics():
 
     point_label = np.array([0, 0, 1, 0, 0], dtype=np.uint8)
     early_prediction = np.array([1, 0, 0, 0, 0], dtype=np.uint8)
-    assert tolerance_point_adjusted_prf(point_label, early_prediction, tolerance=1).f1 == 0.0
-    assert tolerance_point_adjusted_prf(point_label, early_prediction, tolerance=2).f1 == 1.0
+    assert (
+        tolerance_point_adjusted_prf(point_label, early_prediction, tolerance=1).f1
+        == 0.0
+    )
+    assert (
+        tolerance_point_adjusted_prf(point_label, early_prediction, tolerance=2).f1
+        == 1.0
+    )
 
 
 def test_pate_perfect_detection_and_undefined_labels():
@@ -193,7 +199,12 @@ def test_collection_fixed_predictions_and_micro_summary():
         test,
         scores={"a": [0.0, 0.9, 0.8], "b": [0.0, 0.1, 0.7]},
         predictions={"a": [0, 1, 0], "b": [0, 1, 1]},
-        metrics=("Standard-Accuracy", "Standard-Precision", "Standard-Recall", "Standard-F1"),
+        metrics=(
+            "Standard-Accuracy",
+            "Standard-Precision",
+            "Standard-Recall",
+            "Standard-F1",
+        ),
         sliding_window=0,
         on_error="raise",
     )

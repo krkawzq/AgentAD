@@ -158,9 +158,7 @@ def train_series(
     train_windows, valid_windows = _train_valid_windows(
         np.asarray(train_data, dtype=np.float64), window
     )
-    train_loader = DataLoader(
-        train_windows, batch_size=config.batch_size, shuffle=True
-    )
+    train_loader = DataLoader(train_windows, batch_size=config.batch_size, shuffle=True)
     valid_loader = DataLoader(valid_windows, batch_size=config.batch_size)
     module = CrossADLightningModule(config)
     trainer = L.Trainer(

@@ -43,9 +43,7 @@ def validate_package(path: Path) -> tuple[dict[str, Any], tuple[str, ...], int]:
     split = str(manifest["split"])
     expected = artifact if split == "data" else f"{artifact}.{split}"
     if path.name != f"{expected}.zarr.zip":
-        raise ValueError(
-            f"{path}: filename does not match artifact/split {expected!r}"
-        )
+        raise ValueError(f"{path}: filename does not match artifact/split {expected!r}")
 
     for item in packed:
         meta = item.meta
@@ -88,8 +86,7 @@ def validate(root: Path) -> dict[str, Any]:
         dataset = str(manifest["dataset"])
         artifact = str(manifest["artifact"])
         unique_series.update(
-            (source, collection, dataset, artifact, series_id)
-            for series_id in ids
+            (source, collection, dataset, artifact, series_id) for series_id in ids
         )
         sources[source] += 1
         tasks[str(manifest["task"])] += 1

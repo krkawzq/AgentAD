@@ -69,11 +69,11 @@ class PaAnoConfig:
         if self.memory_coreset_fraction is not None and not (
             0 < self.memory_coreset_fraction <= 1
         ):
-            raise ValueError(
-                "memory_coreset_fraction must be in (0, 1] when provided"
-            )
+            raise ValueError("memory_coreset_fraction must be in (0, 1] when provided")
         if self.learning_rate <= 0 or self.weight_decay < 0:
-            raise ValueError("learning_rate must be positive and weight_decay non-negative")
+            raise ValueError(
+                "learning_rate must be positive and weight_decay non-negative"
+            )
         if not 0 < self.final_learning_rate_factor <= 1:
             raise ValueError("final_learning_rate_factor must be in (0, 1]")
 

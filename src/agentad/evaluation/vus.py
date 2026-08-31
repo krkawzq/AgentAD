@@ -374,9 +374,7 @@ def fixed_vus_prf(
             f"y_true and y_pred must have the same length: {labels.size} != {predictions.size}"
         )
     window_size = non_negative_integer(window_size, name="window_size")
-    precision, recall, f1 = _fixed_vus_prf(
-        labels, predictions, window_size
-    )
+    precision, recall, f1 = _fixed_vus_prf(labels, predictions, window_size)
     return PRF1(float(precision), float(recall), float(f1))
 
 

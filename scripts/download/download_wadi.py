@@ -28,9 +28,10 @@ def download(url: str, destination: Path) -> None:
         return
     partial = destination.with_suffix(destination.suffix + ".part")
     try:
-        with urllib.request.urlopen(url, timeout=120) as response, partial.open(
-            "wb"
-        ) as handle:
+        with (
+            urllib.request.urlopen(url, timeout=120) as response,
+            partial.open("wb") as handle,
+        ):
             shutil.copyfileobj(response, handle, length=16 * 1024 * 1024)
         partial.replace(destination)
     except BaseException:

@@ -63,7 +63,7 @@ def main() -> None:
         output_root=args.output_root,
         artifact=args.artifact,
         device=args.device,
-        partition=None if args.partition.lower() == 'none' else args.partition,
+        partition=None if args.partition.lower() == "none" else args.partition,
         seed=args.seed,
         hp=_parse_hp(args.hp) or None,
         resume=not args.no_resume,

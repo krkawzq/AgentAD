@@ -115,16 +115,12 @@ def train_series(
     trainer.fit(
         module,
         _pair_loader(module.model, fit, batch_size=config.batch_size, shuffle=True),
-        _pair_loader(
-            module.model, valid, batch_size=config.batch_size, shuffle=False
-        ),
+        _pair_loader(module.model, valid, batch_size=config.batch_size, shuffle=False),
     )
     if checkpoint is not None:
         path = Path(checkpoint)
         path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(
-            {"config": asdict(config), "state_dict": module.state_dict()}, path
-        )
+        torch.save({"config": asdict(config), "state_dict": module.state_dict()}, path)
     return module
 
 

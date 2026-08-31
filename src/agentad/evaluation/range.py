@@ -142,9 +142,7 @@ def _best_event_prf(y_true, scores, thresholds):
     for threshold in thresholds:
         for index in range(scores.size):
             prediction[index] = 1 if scores[index] > threshold else 0
-        precision, recall, f1 = _event_prf_from_runs(
-            y_true, prediction, starts, stops
-        )
+        precision, recall, f1 = _event_prf_from_runs(y_true, prediction, starts, stops)
         if f1 > best_f1:
             best_precision = precision
             best_recall = recall
@@ -161,12 +159,8 @@ def _best_range_f1(y_true, scores, thresholds, alpha=0.2):
         for index in range(scores.size):
             prediction[index] = 1 if scores[index] > threshold else 0
         pred_starts, pred_stops = _binary_runs(prediction)
-        recall = _range_reward(
-            true_starts, true_stops, pred_starts, pred_stops, alpha
-        )
-        precision = _range_reward(
-            pred_starts, pred_stops, true_starts, true_stops, 0.0
-        )
+        recall = _range_reward(true_starts, true_stops, pred_starts, pred_stops, alpha)
+        precision = _range_reward(pred_starts, pred_stops, true_starts, true_stops, 0.0)
         f1 = (
             2.0 * precision * recall / (precision + recall)
             if precision + recall
@@ -188,12 +182,8 @@ def _best_range_prf(y_true, scores, thresholds, alpha=0.2):
         for index in range(scores.size):
             prediction[index] = 1 if scores[index] > threshold else 0
         pred_starts, pred_stops = _binary_runs(prediction)
-        recall = _range_reward(
-            true_starts, true_stops, pred_starts, pred_stops, alpha
-        )
-        precision = _range_reward(
-            pred_starts, pred_stops, true_starts, true_stops, 0.0
-        )
+        recall = _range_reward(true_starts, true_stops, pred_starts, pred_stops, alpha)
+        precision = _range_reward(pred_starts, pred_stops, true_starts, true_stops, 0.0)
         f1 = (
             2.0 * precision * recall / (precision + recall)
             if precision + recall
@@ -240,16 +230,10 @@ def _best_oracle_prfs(y_true, scores, thresholds, alpha=0.2):
             best_event_f = event_f
 
         pred_starts, pred_stops = _binary_runs(prediction)
-        range_r = _range_reward(
-            true_starts, true_stops, pred_starts, pred_stops, alpha
-        )
-        range_p = _range_reward(
-            pred_starts, pred_stops, true_starts, true_stops, 0.0
-        )
+        range_r = _range_reward(true_starts, true_stops, pred_starts, pred_stops, alpha)
+        range_p = _range_reward(pred_starts, pred_stops, true_starts, true_stops, 0.0)
         range_f = (
-            2.0 * range_p * range_r / (range_p + range_r)
-            if range_p + range_r
-            else 0.0
+            2.0 * range_p * range_r / (range_p + range_r) if range_p + range_r else 0.0
         )
         if range_f > best_range_f:
             best_range_p = range_p
@@ -545,11 +529,7 @@ def _interval_prf(labels, predictions):
         if true_positive + false_negative
         else 0.0
     )
-    f1 = (
-        2.0 * precision * recall / (precision + recall)
-        if precision + recall
-        else 0.0
-    )
+    f1 = 2.0 * precision * recall / (precision + recall) if precision + recall else 0.0
     return precision, recall, f1
 
 
@@ -731,9 +711,11 @@ def _pate_auc(labels, scores, thresholds, early_buffers, delayed_buffers):
                     post_stops,
                 )
                 if recall >= previous_recall:
-                    area += (recall - previous_recall) * (
-                        precision + previous_precision
-                    ) / 2.0
+                    area += (
+                        (recall - previous_recall)
+                        * (precision + previous_precision)
+                        / 2.0
+                    )
                     previous_precision = precision
                     previous_recall = recall
                 if precision + recall:
@@ -987,19 +969,13 @@ def _buffer_points(maximum: int, splits: int, include_zero: bool) -> NDArray[np.
         raise TypeError("include_zero must be a boolean")
     start = 0.0 if include_zero else maximum / splits
     count = splits + 1 if include_zero else splits
-    return np.ascontiguousarray(
-        np.linspace(start, maximum, num=count, dtype=np.int64)
-    )
+    return np.ascontiguousarray(np.linspace(start, maximum, num=count, dtype=np.int64))
 
 
-def _rank_thresholds(
-    scores: NDArray[np.float64], count: int
-) -> NDArray[np.float64]:
+def _rank_thresholds(scores: NDArray[np.float64], count: int) -> NDArray[np.float64]:
     count = validate_threshold_count(count, name="pate_threshold_count")
     descending = np.sort(scores)[::-1]
-    indices = np.linspace(0, scores.size - 1, min(count, scores.size)).astype(
-        np.int64
-    )
+    indices = np.linspace(0, scores.size - 1, min(count, scores.size)).astype(np.int64)
     sampled = descending[indices]
     keep = np.concatenate(([True], sampled[1:] != sampled[:-1]))
     return np.ascontiguousarray(sampled[keep])
@@ -1022,14 +998,8 @@ def pate_prf(
     labels, predictions = _fixed_pair(y_true, y_pred)
     early_buffer = non_negative_integer(early_buffer, name="early_buffer")
     delayed_buffer = non_negative_integer(delayed_buffer, name="delayed_buffer")
-    precision, recall = _pate_pr(
-        labels, predictions, early_buffer, delayed_buffer
-    )
-    f1 = (
-        2.0 * precision * recall / (precision + recall)
-        if precision + recall
-        else 0.0
-    )
+    precision, recall = _pate_pr(labels, predictions, early_buffer, delayed_buffer)
+    f1 = 2.0 * precision * recall / (precision + recall) if precision + recall else 0.0
     return PRF1(float(precision), float(recall), float(f1))
 
 

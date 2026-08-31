@@ -353,9 +353,7 @@ class TimeRCD(nn.Module):
             # The original replaces only exactly-constant channels instead of
             # clamping small scales.
             scale = series.std(1, keepdim=True, unbiased=False)
-            scale = torch.where(
-                scale == 0, scale.new_full((), 1e-8), scale
-            )
+            scale = torch.where(scale == 0, scale.new_full((), 1e-8), scale)
             normalized = (series - mean) / scale
             batch, time, features = normalized.shape
             window = min(time, self.config.inference_window)
@@ -411,9 +409,7 @@ def load_official_checkpoint(
     load without renaming.
     """
     checkpoint = torch.load(Path(path), map_location="cpu", weights_only=True)
-    stored = (
-        checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
-    )
+    stored = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
     num_features = stored.get("ts_config", {}).get("num_features")
     if variant is None:
         variant = "uni" if num_features == 1 else "multi"
@@ -421,9 +417,7 @@ def load_official_checkpoint(
         config = TimeRCDConfig.original_pretrained_univariate()
     elif variant == "multi":
         features = 8 if input_features is None else input_features
-        config = TimeRCDConfig.original_pretrained_multivariate(
-            input_features=features
-        )
+        config = TimeRCDConfig.original_pretrained_multivariate(input_features=features)
     else:
         raise ValueError(f"variant must be 'uni' or 'multi', got {variant!r}")
     model = TimeRCD(config)
@@ -507,7 +501,9 @@ class TimeRCDLightningModule(L.LightningModule):
         return self.model.score(series, batch_size=self.config.batch_size)
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
-        parameters = [parameter for parameter in self.parameters() if parameter.requires_grad]
+        parameters = [
+            parameter for parameter in self.parameters() if parameter.requires_grad
+        ]
         return torch.optim.AdamW(
             parameters,
             lr=self.config.learning_rate,

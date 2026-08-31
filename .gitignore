@@ -37,3 +37,4 @@ tmp/
 
 # Official pretrained checkpoints
 pretrained/
+benchmarks/

@@ -482,9 +482,7 @@ class CrossADLightningModule(ValidationEarlyStopping, L.LightningModule):
         optimizer_type = (
             torch.optim.AdamW if self.config.optimizer == "adamw" else torch.optim.Adam
         )
-        optimizer = optimizer_type(
-            self.parameters(), lr=self.config.learning_rate
-        )
+        optimizer = optimizer_type(self.parameters(), lr=self.config.learning_rate)
         if self.config.learning_rate_schedule == "type1":
             scheduler = torch.optim.lr_scheduler.LambdaLR(
                 optimizer, self._type1_schedule()

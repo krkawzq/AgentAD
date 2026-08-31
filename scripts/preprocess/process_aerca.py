@@ -57,9 +57,7 @@ def load_msds_frames(
         if "now" not in raw.columns:
             raise ValueError(f"MSDS metric file has no 'now' column: {path}")
         raw = raw.drop(
-            columns=[
-                column for column in MSDS_DROPPED_COLUMNS if column in raw.columns
-            ]
+            columns=[column for column in MSDS_DROPPED_COLUMNS if column in raw.columns]
         )
         raw_frames.append((path, raw))
     start = max(raw["now"].min() for _, raw in raw_frames)
@@ -69,9 +67,7 @@ def load_msds_frames(
         # melt + dropna + pivot_table, i.e. per-timestamp mean over the
         # non-missing samples.
         trimmed = raw.drop(np.argwhere(list(raw["now"] < start)).reshape(-1))
-        trimmed = trimmed.drop(
-            np.argwhere(list(trimmed["now"] > end)).reshape(-1)
-        )
+        trimmed = trimmed.drop(np.argwhere(list(trimmed["now"] > end)).reshape(-1))
         melted = trimmed.melt(id_vars=["now"]).dropna()
         values = melted.pivot_table(index=["now"], columns="variable", values="value")
         values = values.apply(pd.to_numeric, errors="raise")
@@ -110,9 +106,7 @@ def load_msds_frames(
             f"MSDS labels/downsampled-test length mismatch: "
             f"{len(root_causes)} != {expected}"
         )
-    root_causes = root_causes.iloc[
-        np.arange(len(test)) // 5
-    ].reset_index(drop=True)
+    root_causes = root_causes.iloc[np.arange(len(test)) // 5].reset_index(drop=True)
     if not np.isin(root_causes.to_numpy(), [0, 1]).all():
         raise ValueError("MSDS root-cause labels must be binary")
     root_causes.columns = [f"root_cause_{column}" for column in root_causes.columns]
@@ -202,8 +196,7 @@ def main() -> None:
     msds_dir = input_root / "msds"
     if not msds_dir.is_dir() or not labels_path.is_file():
         raise FileNotFoundError(
-            f"MSDS data not found under {input_root} (expected msds/ and "
-            f"{labels_path})"
+            f"MSDS data not found under {input_root} (expected msds/ and {labels_path})"
         )
 
     with staged_source_directory(args.output_dir.resolve(), SOURCE) as source_dir:

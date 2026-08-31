@@ -485,9 +485,7 @@ def _evaluate_prepared(
     )
     if predictions is None and needs_oracle_prfs:
         assert thresholds is not None
-        oracle_prfs = _best_oracle_prfs(
-            labels, scores, thresholds, range_alpha
-        )
+        oracle_prfs = _best_oracle_prfs(labels, scores, thresholds, range_alpha)
 
     if any(name in _PA_METRICS for name in selected):
         if predictions is not None:
@@ -504,9 +502,7 @@ def _evaluate_prepared(
         if "PA-Accuracy" in selected:
             if predictions is None:
                 assert thresholds is not None
-                pa_counts = _best_point_adjusted_counts(
-                    labels, scores, thresholds
-                )
+                pa_counts = _best_point_adjusted_counts(labels, scores, thresholds)
                 pa_metrics = _point_metrics_from_counts(*pa_counts)
             computed["PA-Accuracy"] = pa_metrics.accuracy
         computed["PA-Precision"] = float(pa_precision)
@@ -519,9 +515,7 @@ def _evaluate_prepared(
         )
 
     if any(name in _PA_EXACT_METRICS for name in selected):
-        exact_pa = _k_delay_prepared(
-            labels, scores, predictions, delay=labels.size
-        )
+        exact_pa = _k_delay_prepared(labels, scores, predictions, delay=labels.size)
         computed["PA-Exact-Precision"] = exact_pa.precision
         computed["PA-Exact-Recall"] = exact_pa.recall
         computed["PA-Exact-F1"] = exact_pa.f1
@@ -554,9 +548,7 @@ def _evaluate_prepared(
         )
         if affiliation is None:
             assert thresholds is not None
-            affiliation_values = _best_affiliation_prf(
-                labels, scores, thresholds
-            )
+            affiliation_values = _best_affiliation_prf(labels, scores, thresholds)
         else:
             affiliation_values = (
                 affiliation.precision,
@@ -568,8 +560,10 @@ def _evaluate_prepared(
         computed["Affiliation-F"] = float(affiliation_values[2])
 
     if "Precision@K" in selected:
-        k = int(labels.sum()) if precision_k is None else non_negative_integer(
-            precision_k, name="precision_k"
+        k = (
+            int(labels.sum())
+            if precision_k is None
+            else non_negative_integer(precision_k, name="precision_k")
         )
         computed["Precision@K"] = _precision_at_k_prepared(labels, scores, k)
 
@@ -647,8 +641,7 @@ def _evaluate_prepared(
             )
 
     if any(
-        name
-        in ("First-Hit-Rank", "First-Hit-Fraction", "Hit@3%", "Hit@10%")
+        name in ("First-Hit-Rank", "First-Hit-Fraction", "Hit@3%", "Hit@10%")
         for name in selected
     ):
         if labels.any():

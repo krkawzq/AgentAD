@@ -167,9 +167,7 @@ def pack_ragged(raw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return values, offsets
 
 
-def process_m4(
-    input_root: Path, source_dir: Path, project_root: Path
-) -> None:
+def process_m4(input_root: Path, source_dir: Path, project_root: Path) -> None:
     raw_dir = input_root / "m4"
     info_path = raw_dir / "M4-info.csv"
     train_path = raw_dir / "training.npz"
@@ -234,9 +232,7 @@ def process_m4(
         print(f"{SOURCE}/M4/{artifact}: {len(indices)} series")
 
 
-def process_pems(
-    input_root: Path, source_dir: Path, project_root: Path
-) -> None:
+def process_pems(input_root: Path, source_dir: Path, project_root: Path) -> None:
     raw_dir = input_root / "PEMS"
     files = sorted(raw_dir.glob("*.npz"))
     if not files:
@@ -280,9 +276,7 @@ def process_pems(
         print(f"{SOURCE}/{dataset}: {data.shape}")
 
 
-def process_solar(
-    input_root: Path, source_dir: Path, project_root: Path
-) -> None:
+def process_solar(input_root: Path, source_dir: Path, project_root: Path) -> None:
     path = input_root / "solar" / "solar_AL.txt"
     values = np.loadtxt(path, delimiter=",", dtype=np.float64, ndmin=2)
     if values.ndim != 2 or len(values) == 0:

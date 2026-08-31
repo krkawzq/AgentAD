@@ -68,8 +68,7 @@ def _resolve_pair(dataset_dir: Path, artifact: str | None) -> tuple[str, Path, P
         if len(tests) != 1:
             names = [path.name.removesuffix(".test.zarr.zip") for path in tests]
             raise ValueError(
-                f"{dataset_dir} holds {len(tests)} artifact pairs; "
-                f"pass one of {names}"
+                f"{dataset_dir} holds {len(tests)} artifact pairs; pass one of {names}"
             )
         test_archive = tests[0]
     else:
@@ -88,7 +87,6 @@ def _partition_filter(collection: SeriesData, partition: str) -> SeriesData:
         if partition in source_metadata.get("benchmark_partitions", ()):
             kept.append(series_id)
     return collection.select(kept)
-
 
 
 def load_split(
@@ -139,7 +137,9 @@ def discover_tsb_ad(
     for source_dir in sorted(path for path in Path(root).iterdir() if path.is_dir()):
         if source is not None and source_dir.name != source:
             continue
-        for dataset_dir in sorted(path for path in source_dir.iterdir() if path.is_dir()):
+        for dataset_dir in sorted(
+            path for path in source_dir.iterdir() if path.is_dir()
+        ):
             if wanted_datasets is not None and dataset_dir.name not in wanted_datasets:
                 continue
             for test_archive in _test_archives(dataset_dir):
