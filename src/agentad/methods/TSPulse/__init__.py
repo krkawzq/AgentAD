@@ -9,6 +9,8 @@ from .model import (
     TSPulseZeroShot,
 )
 from .model import TSPulseLightningModule
+from .train import train
+from .eval import evaluate_finetune, evaluate_zero_shot
 
 __all__ = [
     "TSPulse",
@@ -18,4 +20,7 @@ __all__ = [
     "TSPulseLightningModule",
     "TSPulseOutput",
     "TSPulseZeroShot",
+    "evaluate_finetune",
+    "evaluate_zero_shot",
+    "train",
 ]

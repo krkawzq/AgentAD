@@ -421,3 +421,86 @@ def score(series: Tensor, config: StatisticalFeaturesConfig) -> Tensor:
     channels = channels.to(torch.float64)
     scores = torch.stack([_score_channel(channel, config) for channel in channels])
     return combine_channels(scores, batch, features).to(series.dtype)
+
+
+# ---------------------------------------------------------------------------
+# TSB-AD baseline evaluation (spec: tmp/method_train_eval_spec.md §4 shape C)
+# ---------------------------------------------------------------------------
+
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
+
+import lightning as L
+import numpy as np
+import pandas as pd
+
+from agentad.benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
+
+METHOD_NAME = "StatisticalFeatures"
+
+# TSB-AD tunes no hyperparameters for the HSF family: the univariate grid
+# Uni_algo_HP_dict["HSF_U"] only lists window ∈ {64, 128, 256} without a
+# selected optimum, Optimal_Uni_algo_HP_dict["HSF_U"] = {}, and HSF has no
+# Optimal_Multi entry at all (forks/TSB-AD/TSB_AD/HP_list.py). Empty HP is
+# therefore the protocol for uni and multi alike; it matches HSF_AD's own
+# defaults, which the frozen Config reproduces (window/short/long/spectral
+# sizes resolve from the series length at scoring time, weights all 1.0).
+DEFAULT_HP: Mapping[str, Any] = {}
+
+
+def _check_scores(scores: np.ndarray, length: int) -> None:
+    if scores.shape != (length,):
+        raise ValueError(f"score length {scores.shape[0]} != series length {length}")
+    if not np.isfinite(scores).all():
+        raise ValueError("scores contain non-finite values")
+
+
+def evaluate(
+    dataset_dir: str | Path,
+    output_root: str | Path = "benchmarks/StatisticalFeatures",
+    *,
+    artifact: str | None = None,
+    partition: str | None = "Eva",
+    seed: int = 2024,
+    hp: Mapping[str, Any] | None = None,
+    resume: bool = True,
+) -> pd.DataFrame:
+    """Score every series of one artifact on its train+test full length.
+
+    ``hp`` overrides :data:`DEFAULT_HP` for the frozen
+    StatisticalFeaturesConfig. Scores are stored under ``output_root``
+    (already-scored series are skipped when ``resume``) and the per-series
+    metric table is returned.
+    """
+    L.seed_everything(seed)
+    split = load_split(dataset_dir, artifact, partition=partition)
+    unit = unit_dir(output_root, METHOD_NAME, split)
+    config = StatisticalFeaturesConfig(**{**DEFAULT_HP, **(hp or {})})
+    for series_id in split.test.ids:
+        if resume and has_score(unit, series_id):
+            continue
+        train_item = split.train[series_id] if split.train is not None else None
+        test_item = split.test[series_id]
+        full = (
+            np.concatenate([train_item.data, test_item.data])
+            if train_item is not None
+            else test_item.data
+        )
+        scores = score(torch.from_numpy(full)[None], config)[0].numpy()
+        _check_scores(scores, len(full))
+        save_score(unit, series_id, scores)
+    return write_metrics(split, unit)
+
+
+if __name__ == "__main__":
+    evaluate(
+        dataset_dir="data/processed/tsb-ad/TSB-AD-U/Daphnet",
+        output_root="benchmarks/StatisticalFeatures",
+    )

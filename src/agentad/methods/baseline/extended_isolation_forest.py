@@ -162,3 +162,81 @@ def score(series: Tensor, config: ExtendedIsolationForestConfig) -> Tensor:
         points = standardize_points(item, normalize=config.normalize)
         outputs.append(_score_item(points, config))
     return torch.stack(outputs)
+
+
+# ---------------------------------------------------------------------------
+# TSB-AD evaluation entry point (spec form C: baseline evaluate).
+
+from collections.abc import Mapping
+from dataclasses import replace
+from pathlib import Path
+from typing import Any
+
+import lightning as L
+import pandas as pd
+
+from agentad.benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
+
+# TSB-AD optimal HP mapped to this config: n_trees -> trees. TSB-AD-M
+# entry Optimal_Multi_algo_HP_dict['EIF'] = {'n_trees': 50}. TSB-AD-U does
+# not benchmark EIF, so univariate keeps the config defaults
+# (run_EIF-default n_trees=100, full extension level). run_EIF has no
+# window parameter: points are scored directly.
+DEFAULT_HP: Mapping[str, Any] = {"trees": 50}
+_UNI_HP: Mapping[str, Any] = {}
+
+
+def _config(
+    full: np.ndarray, hp: Mapping[str, Any] | None
+) -> ExtendedIsolationForestConfig:
+    """Config with the channel-selected TSB-AD optimal HP, overridden by ``hp``."""
+    base = _UNI_HP if full.shape[1] == 1 else DEFAULT_HP
+    return replace(ExtendedIsolationForestConfig(), **{**base, **(hp or {})})
+
+
+def evaluate(
+    dataset_dir: str | Path,
+    output_root: str | Path = "benchmarks/ExtendedIsolationForest",
+    *,
+    artifact: str | None = None,
+    partition: str | None = "Eva",
+    seed: int = 2024,
+    hp: Mapping[str, Any] | None = None,
+    resume: bool = True,
+) -> pd.DataFrame:
+    """Score every series of one artifact on the concatenated train+test
+    full length, store per-series scores, and return the per-series
+    metric table; ``resume`` skips series with a stored score."""
+    split = load_split(dataset_dir, artifact, partition=partition)
+    unit = unit_dir(output_root, "ExtendedIsolationForest", split)
+    for series_id in split.test.ids:
+        if resume and has_score(unit, series_id):
+            continue
+        L.seed_everything(seed)
+        train_item = split.train[series_id] if split.train else None
+        test_item = split.test[series_id]
+        full = (
+            np.concatenate([train_item.data, test_item.data])
+            if train_item is not None
+            else np.asarray(test_item.data, dtype=np.float64)
+        )
+        scores = score(torch.from_numpy(full)[None], _config(full, hp))[0].numpy()
+        if scores.shape != (full.shape[0],) or not np.isfinite(scores).all():
+            raise RuntimeError(
+                f"ExtendedIsolationForest: invalid scores for {series_id}"
+            )
+        save_score(unit, series_id, scores)
+    return write_metrics(split, unit)
+
+
+if __name__ == "__main__":
+    evaluate(
+        "data/processed/tsb-ad/TSB-AD-M/CATSv2",
+        "benchmarks/ExtendedIsolationForest",
+    )

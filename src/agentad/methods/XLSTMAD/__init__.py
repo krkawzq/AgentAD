@@ -1,8 +1,10 @@
 """xLSTMAD exports."""
 
 from .config import XLSTMADConfig
+from .eval import evaluate
 from .model import XLSTMAD, XLSTMADLoss, XLSTMADOutput
 from .model import XLSTMADLightningModule
+from .train import train
 
 __all__ = [
     "XLSTMAD",
@@ -10,4 +12,6 @@ __all__ = [
     "XLSTMADLightningModule",
     "XLSTMADLoss",
     "XLSTMADOutput",
+    "evaluate",
+    "train",
 ]

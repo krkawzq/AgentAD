@@ -62,3 +62,83 @@ def _score_item(matrix: Tensor, config: CopulaConfig) -> Tensor:
 def score(series: Tensor, config: CopulaConfig) -> Tensor:
     series = validate_series(series)
     return torch.stack([_score_item(item, config) for item in series])
+
+
+# ---------------------------------------------------------------------------
+# TSB-AD baseline evaluation (spec: tmp/method_train_eval_spec.md §4 shape C)
+# ---------------------------------------------------------------------------
+
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
+
+import lightning as L
+import numpy as np
+import pandas as pd
+
+from agentad.benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
+
+METHOD_NAME = "Copula"
+
+# COPOD is parameter-free: its only tuned entry, Optimal_Multi_algo_HP_dict
+# ["COPOD"] = {"n_jobs": 1} (forks/TSB-AD/TSB_AD/HP_list.py), is execution
+# parallelism with no counterpart in CopulaConfig, and the univariate HP
+# dicts hold no COPOD entry. normalize=True reproduces the COPOD
+# constructor default; identical HPs apply to uni and multi.
+DEFAULT_HP: Mapping[str, Any] = {"normalize": True}
+
+
+def _check_scores(scores: np.ndarray, length: int) -> None:
+    if scores.shape != (length,):
+        raise ValueError(f"score length {scores.shape[0]} != series length {length}")
+    if not np.isfinite(scores).all():
+        raise ValueError("scores contain non-finite values")
+
+
+def evaluate(
+    dataset_dir: str | Path,
+    output_root: str | Path = "benchmarks/Copula",
+    *,
+    artifact: str | None = None,
+    partition: str | None = "Eva",
+    seed: int = 2024,
+    hp: Mapping[str, Any] | None = None,
+    resume: bool = True,
+) -> pd.DataFrame:
+    """Score every series of one artifact on its train+test full length.
+
+    ``hp`` overrides :data:`DEFAULT_HP` for the frozen CopulaConfig.
+    Scores are stored under ``output_root`` (already-scored series are
+    skipped when ``resume``) and the per-series metric table is returned.
+    """
+    L.seed_everything(seed)
+    split = load_split(dataset_dir, artifact, partition=partition)
+    unit = unit_dir(output_root, METHOD_NAME, split)
+    config = CopulaConfig(**{**DEFAULT_HP, **(hp or {})})
+    for series_id in split.test.ids:
+        if resume and has_score(unit, series_id):
+            continue
+        train_item = split.train[series_id] if split.train is not None else None
+        test_item = split.test[series_id]
+        full = (
+            np.concatenate([train_item.data, test_item.data])
+            if train_item is not None
+            else test_item.data
+        )
+        scores = score(torch.from_numpy(full)[None], config)[0].numpy()
+        _check_scores(scores, len(full))
+        save_score(unit, series_id, scores)
+    return write_metrics(split, unit)
+
+
+if __name__ == "__main__":
+    evaluate(
+        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
+        output_root="benchmarks/Copula",
+    )

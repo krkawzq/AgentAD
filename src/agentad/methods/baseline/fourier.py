@@ -11,12 +11,25 @@ Multivariate input is scored per channel and averaged.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any
 
+import lightning as L
+import numpy as np
+import pandas as pd
 import torch
 from torch import Tensor
 
 from ._common import combine_channels, per_channel, zscore
+from agentad.benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,3 +95,62 @@ def score(series: Tensor, config: FourierConfig) -> Tensor:
     channels, batch, features = per_channel(series)
     scores = torch.stack([_score_channel(channel, config) for channel in channels])
     return combine_channels(scores, batch, features)
+
+
+# TSB-AD leaves FFT untuned (Optimal_Uni_algo_HP_dict["FFT"] is empty and there
+# is no Optimal_Multi entry), so DEFAULT_HP spells out the algorithm defaults
+# of TSB_AD/models/FFT.py: ifft_parameters=5, local_neighbor_window=21,
+# local_outlier_threshold=0.6, max_sign_change_distance=10. The original
+# max_region_size=50 has no counterpart in FourierConfig, whose region merging
+# is bounded by region_gap alone.
+DEFAULT_HP: Mapping[str, Any] = {
+    "frequencies": 5,
+    "neighbor_window": 21,
+    "outlier_threshold": 0.6,
+    "region_gap": 10,
+}
+
+
+def evaluate(
+    dataset_dir: str | Path,
+    output_root: str | Path = "benchmarks/Fourier",
+    *,
+    artifact: str | None = None,
+    partition: str | None = "Eva",
+    seed: int = 2024,
+    hp: Mapping[str, Any] | None = None,
+    resume: bool = True,
+) -> pd.DataFrame:
+    """Evaluate the baseline on one dataset artifact.
+
+    Scores each train+test concatenated full length, stores one score array
+    per series under the method unit (``resume`` skips stored ones), and
+    returns the per-series metric table. The algorithm is deterministic;
+    ``seed`` re-seeds the global RNG state for protocol parity.
+    """
+    split = load_split(dataset_dir, artifact, partition=partition)
+    unit = unit_dir(output_root, "Fourier", split)
+    config = replace(FourierConfig(), **{**DEFAULT_HP, **(hp or {})})
+    for series_id in split.test.ids:
+        if resume and has_score(unit, series_id):
+            continue
+        L.seed_everything(seed)
+        train_item = split.train[series_id] if split.train else None
+        test_item = split.test[series_id]
+        full = (
+            np.concatenate([train_item.data, test_item.data])
+            if train_item is not None
+            else test_item.data
+        )
+        scores = score(torch.from_numpy(full)[None], config)[0].numpy()
+        if scores.shape != (len(full),) or not np.isfinite(scores).all():
+            raise ValueError(f"invalid scores for series {series_id!r}")
+        save_score(unit, series_id, scores)
+    return write_metrics(split, unit)
+
+
+if __name__ == "__main__":
+    evaluate(
+        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
+        output_root="benchmarks/Fourier",
+    )

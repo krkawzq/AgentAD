@@ -1,8 +1,10 @@
 """PaAno exports."""
 
 from .config import PaAnoConfig
+from .eval import evaluate
 from .model import PaAno, PaAnoLoss, PatchEncoder
 from .model import PaAnoLightningModule
+from .train import train
 
 __all__ = [
     "PaAno",
@@ -10,4 +12,6 @@ __all__ = [
     "PaAnoLightningModule",
     "PaAnoLoss",
     "PatchEncoder",
+    "evaluate",
+    "train",
 ]

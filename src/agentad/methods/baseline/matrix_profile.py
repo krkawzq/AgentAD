@@ -11,8 +11,14 @@ autocorrelation.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any
 
+import lightning as L
+import numpy as np
+import pandas as pd
 import torch
 from torch import Tensor
 
@@ -24,6 +30,14 @@ from ._common import (
     znormalized_window_min,
 )
 from .._utils import sliding_windows
+from agentad.benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
+from agentad.evaluation.period import find_period
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,3 +77,61 @@ def score(series: Tensor, config: MatrixProfileConfig) -> Tensor:
     window = config.window or infer_period(channels[0])
     scores = torch.stack([_profile(channel, window) for channel in channels])
     return combine_channels(scores, batch, features)
+
+
+# TSB-AD tunes MatrixProfile only through the period ("periodicity": 1 in
+# Optimal_Uni_algo_HP_dict; no Optimal_Multi entry), and run_MatrixProfile sets
+# window = find_length_rank(data, rank=1). The data-derived window therefore
+# stays out of DEFAULT_HP and is computed per series from the first channel's
+# rank-1 autocorrelation period; hp may pin it explicitly via {"window": int}.
+DEFAULT_HP: Mapping[str, Any] = {}
+
+
+def evaluate(
+    dataset_dir: str | Path,
+    output_root: str | Path = "benchmarks/MatrixProfile",
+    *,
+    artifact: str | None = None,
+    partition: str | None = "Eva",
+    seed: int = 2024,
+    hp: Mapping[str, Any] | None = None,
+    resume: bool = True,
+) -> pd.DataFrame:
+    """Evaluate the baseline on one dataset artifact.
+
+    Scores each train+test concatenated full length, stores one score array
+    per series under the method unit (``resume`` skips stored ones), and
+    returns the per-series metric table. The window defaults to the first
+    channel's rank-1 period unless ``hp`` provides ``window``; the algorithm
+    is deterministic, and ``seed`` only re-seeds the global RNG state for
+    protocol parity.
+    """
+    split = load_split(dataset_dir, artifact, partition=partition)
+    unit = unit_dir(output_root, "MatrixProfile", split)
+    overrides = {**DEFAULT_HP, **(hp or {})}
+    window_override = overrides.pop("window", None)
+    for series_id in split.test.ids:
+        if resume and has_score(unit, series_id):
+            continue
+        L.seed_everything(seed)
+        train_item = split.train[series_id] if split.train else None
+        test_item = split.test[series_id]
+        full = (
+            np.concatenate([train_item.data, test_item.data])
+            if train_item is not None
+            else test_item.data
+        )
+        window = window_override or find_period(full[:, 0])
+        config = replace(MatrixProfileConfig(), **overrides, window=window)
+        scores = score(torch.from_numpy(full)[None], config)[0].numpy()
+        if scores.shape != (len(full),) or not np.isfinite(scores).all():
+            raise ValueError(f"invalid scores for series {series_id!r}")
+        save_score(unit, series_id, scores)
+    return write_metrics(split, unit)
+
+
+if __name__ == "__main__":
+    evaluate(
+        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
+        output_root="benchmarks/MatrixProfile",
+    )

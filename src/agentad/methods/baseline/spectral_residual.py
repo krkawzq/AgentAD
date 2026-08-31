@@ -9,13 +9,26 @@ scored per channel and averaged.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any
 
+import lightning as L
+import numpy as np
+import pandas as pd
 import torch
 from torch import Tensor
 from torch.nn import functional as F
 
 from ._common import combine_channels, per_channel
+from agentad.benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,3 +83,56 @@ def score(series: Tensor, config: SpectralResidualConfig) -> Tensor:
     salience = torch.fft.ifft(torch.polar(residual.exp(), phase), dim=1).abs()
     salience = torch.where(constant, torch.zeros_like(salience), salience)
     return combine_channels(salience, batch, features)
+
+
+# The original SR hardcodes its spectrum smoothing window (window_amp=100).
+# TSB-AD's Optimal_Uni_algo_HP_dict["SR"] = {"periodicity": 1} only feeds
+# find_length_rank into a window_size parameter that the original SR
+# implementation ignores, and there is no Optimal_Multi entry, so the original
+# constant is the one effective hyperparameter.
+DEFAULT_HP: Mapping[str, Any] = {"smoothing_window": 100}
+
+
+def evaluate(
+    dataset_dir: str | Path,
+    output_root: str | Path = "benchmarks/SpectralResidual",
+    *,
+    artifact: str | None = None,
+    partition: str | None = "Eva",
+    seed: int = 2024,
+    hp: Mapping[str, Any] | None = None,
+    resume: bool = True,
+) -> pd.DataFrame:
+    """Evaluate the baseline on one dataset artifact.
+
+    Scores each train+test concatenated full length, stores one score array
+    per series under the method unit (``resume`` skips stored ones), and
+    returns the per-series metric table. The algorithm is deterministic;
+    ``seed`` re-seeds the global RNG state for protocol parity.
+    """
+    split = load_split(dataset_dir, artifact, partition=partition)
+    unit = unit_dir(output_root, "SpectralResidual", split)
+    config = replace(SpectralResidualConfig(), **{**DEFAULT_HP, **(hp or {})})
+    for series_id in split.test.ids:
+        if resume and has_score(unit, series_id):
+            continue
+        L.seed_everything(seed)
+        train_item = split.train[series_id] if split.train else None
+        test_item = split.test[series_id]
+        full = (
+            np.concatenate([train_item.data, test_item.data])
+            if train_item is not None
+            else test_item.data
+        )
+        scores = score(torch.from_numpy(full)[None], config)[0].numpy()
+        if scores.shape != (len(full),) or not np.isfinite(scores).all():
+            raise ValueError(f"invalid scores for series {series_id!r}")
+        save_score(unit, series_id, scores)
+    return write_metrics(split, unit)
+
+
+if __name__ == "__main__":
+    evaluate(
+        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
+        output_root="benchmarks/SpectralResidual",
+    )

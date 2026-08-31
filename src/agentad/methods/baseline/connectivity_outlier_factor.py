@@ -71,3 +71,74 @@ def _score_item(features: Tensor, config: ConnectivityOutlierFactorConfig) -> Te
 def score(series: Tensor, config: ConnectivityOutlierFactorConfig) -> Tensor:
     series = validate_series(series)
     return torch.stack([_score_item(item, config) for item in series])
+
+
+# TSB-AD evaluation entry (form C in tmp/method_train_eval_spec.md); the
+# detector above is frozen and reused as-is.
+
+from dataclasses import replace
+from pathlib import Path
+from typing import Any, Mapping
+
+import lightning as L
+import numpy as np
+import pandas as pd
+import torch
+
+from agentad.benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
+
+# TSB-AD lists COF in neither Optimal dict; the run_COF wrapper default
+# n_neighbors=30 coincides with this Config's default. COF scores raw
+# unstandardized points, so there is no window or normalization knob.
+DEFAULT_HP: Mapping[str, Any] = {"neighbors": 30}
+
+
+def evaluate(
+    dataset_dir: str | Path,
+    output_root: str | Path = "benchmarks/ConnectivityOutlierFactor",
+    *,
+    artifact: str | None = None,
+    partition: str | None = "Eva",
+    seed: int = 2024,
+    hp: Mapping[str, Any] | None = None,
+    resume: bool = True,
+) -> pd.DataFrame:
+    """Score every series of one artifact pair over its full train+test
+    length and write the per-series metric table.
+
+    Existing score files are kept when ``resume``; returns the
+    ``write_metrics`` frame.
+    """
+    split = load_split(dataset_dir, artifact, partition=partition)
+    unit = unit_dir(output_root, "ConnectivityOutlierFactor", split)
+    overrides = {**DEFAULT_HP, **(hp or {})}
+    for series_id in split.test.ids:
+        if resume and has_score(unit, series_id):
+            continue
+        L.seed_everything(seed)
+        train_item = split.train[series_id] if split.train is not None else None
+        test_item = split.test[series_id]
+        full = (
+            np.concatenate([train_item.data, test_item.data])
+            if train_item is not None
+            else test_item.data
+        )
+        config = replace(ConnectivityOutlierFactorConfig(), **overrides)
+        scores = score(torch.from_numpy(full)[None], config)[0].numpy()
+        if scores.shape != (len(full),) or not np.isfinite(scores).all():
+            raise ValueError(f"{series_id}: scores must be finite and full-length")
+        save_score(unit, series_id, scores)
+    return write_metrics(split, unit)
+
+
+if __name__ == "__main__":
+    evaluate(
+        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
+        output_root="benchmarks/ConnectivityOutlierFactor",
+    )

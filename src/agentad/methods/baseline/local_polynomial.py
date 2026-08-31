@@ -12,12 +12,26 @@ channel and averaged.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any
 
+import lightning as L
+import numpy as np
+import pandas as pd
 import torch
 from torch import Tensor
 
 from ._common import combine_channels, infer_period, per_channel
+from agentad.benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
+from agentad.evaluation.period import find_period
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,3 +133,62 @@ def score(series: Tensor, config: LocalPolynomialConfig) -> Tensor:
         [_score_channel(channel, config, window) for channel in channels]
     )
     return combine_channels(scores, batch, features)
+
+
+# TSB-AD's Optimal_Uni_algo_HP_dict["POLY"] = {"periodicity": 1, "power": 4}
+# (no Optimal_Multi entry); run_POLY maps power to the polynomial degree and
+# window to find_length_rank(data, rank=1), leaving neighborhood on the
+# original max(10*window, 100) rule. "power" maps to "degree" here, and the
+# data-derived window is injected per series from the first channel's rank-1
+# period, so it stays out of DEFAULT_HP.
+DEFAULT_HP: Mapping[str, Any] = {"degree": 4}
+
+
+def evaluate(
+    dataset_dir: str | Path,
+    output_root: str | Path = "benchmarks/LocalPolynomial",
+    *,
+    artifact: str | None = None,
+    partition: str | None = "Eva",
+    seed: int = 2024,
+    hp: Mapping[str, Any] | None = None,
+    resume: bool = True,
+) -> pd.DataFrame:
+    """Evaluate the baseline on one dataset artifact.
+
+    Scores each train+test concatenated full length, stores one score array
+    per series under the method unit (``resume`` skips stored ones), and
+    returns the per-series metric table. The window defaults to the first
+    channel's rank-1 period unless ``hp`` provides ``window``; the algorithm
+    is deterministic, and ``seed`` only re-seeds the global RNG state for
+    protocol parity.
+    """
+    split = load_split(dataset_dir, artifact, partition=partition)
+    unit = unit_dir(output_root, "LocalPolynomial", split)
+    overrides = {**DEFAULT_HP, **(hp or {})}
+    window_override = overrides.pop("window", None)
+    for series_id in split.test.ids:
+        if resume and has_score(unit, series_id):
+            continue
+        L.seed_everything(seed)
+        train_item = split.train[series_id] if split.train else None
+        test_item = split.test[series_id]
+        full = (
+            np.concatenate([train_item.data, test_item.data])
+            if train_item is not None
+            else test_item.data
+        )
+        window = window_override or find_period(full[:, 0])
+        config = replace(LocalPolynomialConfig(), **overrides, window=window)
+        scores = score(torch.from_numpy(full)[None], config)[0].numpy()
+        if scores.shape != (len(full),) or not np.isfinite(scores).all():
+            raise ValueError(f"invalid scores for series {series_id!r}")
+        save_score(unit, series_id, scores)
+    return write_metrics(split, unit)
+
+
+if __name__ == "__main__":
+    evaluate(
+        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
+        output_root="benchmarks/LocalPolynomial",
+    )

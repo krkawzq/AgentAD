@@ -110,3 +110,88 @@ def score(series: Tensor, config: PrincipalComponentConfig) -> Tensor:
             for item in features
         ]
     )
+
+
+# ---------------------------------------------------------------------------
+# TSB-AD evaluation entry point (spec form C: baseline evaluate).
+
+from collections.abc import Mapping
+from dataclasses import replace
+from pathlib import Path
+from typing import Any
+
+import lightning as L
+import numpy as np
+import pandas as pd
+
+from agentad.benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
+from agentad.evaluation.period import find_period
+
+# TSB-AD optimal HP mapped to this config: n_components -> components.
+# TSB-AD-M entry Optimal_Multi_algo_HP_dict['PCA'] = {'n_components':
+# 0.25} on run_PCA's slidingWindow=100 windows. TSB-AD-U benchmarks the
+# Sub_PCA variant, Optimal_Uni_algo_HP_dict['Sub_PCA'] = {'periodicity':
+# 1, 'n_components': None}: window = the rank-1 period (periodicity 1)
+# and the config-default component count.
+DEFAULT_HP: Mapping[str, Any] = {"window": 100, "components": 0.25}
+_UNI_HP: Mapping[str, Any] = {"components": None}
+
+
+def _config(
+    full: np.ndarray, hp: Mapping[str, Any] | None
+) -> PrincipalComponentConfig:
+    """Config with the channel-selected TSB-AD optimal HP, overridden by ``hp``.
+
+    Univariate runs take the Sub_PCA window: the rank-1 period of the
+    first channel.
+    """
+    base = dict(_UNI_HP if full.shape[1] == 1 else DEFAULT_HP)
+    if full.shape[1] == 1:
+        base["window"] = find_period(full[:, 0])
+    return replace(PrincipalComponentConfig(), **{**base, **(hp or {})})
+
+
+def evaluate(
+    dataset_dir: str | Path,
+    output_root: str | Path = "benchmarks/PrincipalComponent",
+    *,
+    artifact: str | None = None,
+    partition: str | None = "Eva",
+    seed: int = 2024,
+    hp: Mapping[str, Any] | None = None,
+    resume: bool = True,
+) -> pd.DataFrame:
+    """Score every series of one artifact on the concatenated train+test
+    full length, store per-series scores, and return the per-series
+    metric table; ``resume`` skips series with a stored score."""
+    split = load_split(dataset_dir, artifact, partition=partition)
+    unit = unit_dir(output_root, "PrincipalComponent", split)
+    for series_id in split.test.ids:
+        if resume and has_score(unit, series_id):
+            continue
+        L.seed_everything(seed)
+        train_item = split.train[series_id] if split.train else None
+        test_item = split.test[series_id]
+        full = (
+            np.concatenate([train_item.data, test_item.data])
+            if train_item is not None
+            else np.asarray(test_item.data, dtype=np.float64)
+        )
+        scores = score(torch.from_numpy(full)[None], _config(full, hp))[0].numpy()
+        if scores.shape != (full.shape[0],) or not np.isfinite(scores).all():
+            raise RuntimeError(f"PrincipalComponent: invalid scores for {series_id}")
+        save_score(unit, series_id, scores)
+    return write_metrics(split, unit)
+
+
+if __name__ == "__main__":
+    evaluate(
+        "data/processed/tsb-ad/TSB-AD-M/CATSv2",
+        "benchmarks/PrincipalComponent",
+    )

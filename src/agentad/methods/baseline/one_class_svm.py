@@ -145,3 +145,102 @@ def score(series: Tensor, config: OneClassSVMConfig) -> Tensor:
             for item in features
         ]
     )
+
+
+# ---------------------------------------------------------------------------
+# TSB-AD evaluation entry point (spec form C: baseline evaluate).
+
+from collections.abc import Mapping
+from dataclasses import replace
+from pathlib import Path
+from typing import Any
+
+import lightning as L
+import numpy as np
+import pandas as pd
+
+from agentad.benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
+from agentad.evaluation.period import find_period
+
+# TSB-AD optimal HP mapped to this config: nu -> nu; 'rbf' is this
+# implementation's only kernel, and gamma keeps the sklearn-'auto'
+# equivalent 1/n_features (config gamma=None). TSB-AD-M entry
+# Optimal_Multi_algo_HP_dict['OCSVM'] = {'kernel': 'rbf', 'nu': 0.1} on
+# run_OCSVM's slidingWindow=1 points. TSB-AD-U benchmarks the Sub_OCSVM
+# variant, Optimal_Uni_algo_HP_dict['Sub_OCSVM'] = {'periodicity': 2,
+# 'kernel': 'rbf'}: window = find_length_rank(data, rank=2) and the
+# wrapper-default nu=0.5 (config default). OCSVM sits in TSB-AD's
+# Semisupervise pool, so fitting is restricted to the normal train
+# prefix (train_points).
+DEFAULT_HP: Mapping[str, Any] = {"window": 1, "nu": 0.1}
+_UNI_HP: Mapping[str, Any] = {}
+
+
+def _config(
+    full: np.ndarray,
+    train_points: int | None,
+    hp: Mapping[str, Any] | None,
+) -> OneClassSVMConfig:
+    """Config with the channel-selected TSB-AD optimal HP, overridden by ``hp``.
+
+    Univariate runs take the Sub_OCSVM window (periodicity 2, i.e. the
+    rank-2 period of the first channel); ``train_points`` restricts
+    fitting to the normal train prefix.
+    """
+    base = dict(_UNI_HP if full.shape[1] == 1 else DEFAULT_HP)
+    if full.shape[1] == 1:
+        # TSB-AD's run_Sub_OCSVM estimates this window from data_test;
+        # this evaluate feeds the concatenated train+test full length
+        # instead.
+        base["window"] = find_period(full[:, 0], rank=2)
+    base["train_points"] = train_points
+    return replace(OneClassSVMConfig(), **{**base, **(hp or {})})
+
+
+def evaluate(
+    dataset_dir: str | Path,
+    output_root: str | Path = "benchmarks/OneClassSVM",
+    *,
+    artifact: str | None = None,
+    partition: str | None = "Eva",
+    seed: int = 2024,
+    hp: Mapping[str, Any] | None = None,
+    resume: bool = True,
+) -> pd.DataFrame:
+    """Score every series of one artifact on the concatenated train+test
+    full length, store per-series scores, and return the per-series
+    metric table; ``resume`` skips series with a stored score."""
+    split = load_split(dataset_dir, artifact, partition=partition)
+    unit = unit_dir(output_root, "OneClassSVM", split)
+    for series_id in split.test.ids:
+        if resume and has_score(unit, series_id):
+            continue
+        L.seed_everything(seed)
+        train_item = split.train[series_id] if split.train else None
+        test_item = split.test[series_id]
+        full = (
+            np.concatenate([train_item.data, test_item.data])
+            if train_item is not None
+            else np.asarray(test_item.data, dtype=np.float64)
+        )
+        train_points = len(train_item) if train_item is not None else None
+        scores = score(
+            torch.from_numpy(full)[None], _config(full, train_points, hp)
+        )[0].numpy()
+        if scores.shape != (full.shape[0],) or not np.isfinite(scores).all():
+            raise RuntimeError(f"OneClassSVM: invalid scores for {series_id}")
+        save_score(unit, series_id, scores)
+    return write_metrics(split, unit)
+
+
+if __name__ == "__main__":
+    evaluate(
+        "data/processed/tsb-ad/TSB-AD-M/CATSv2",
+        "benchmarks/OneClassSVM",
+    )

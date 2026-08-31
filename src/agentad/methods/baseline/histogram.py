@@ -87,3 +87,109 @@ def score(series: Tensor, config: HistogramConfig) -> Tensor:
             for item in features
         ]
     )
+
+
+# ---------------------------------------------------------------------------
+# TSB-AD baseline evaluation (spec: tmp/method_train_eval_spec.md §4 shape C)
+# ---------------------------------------------------------------------------
+
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
+
+import lightning as L
+import numpy as np
+import pandas as pd
+
+from agentad.benchmark import (
+    has_score,
+    load_split,
+    save_score,
+    unit_dir,
+    write_metrics,
+)
+from agentad.evaluation.period import find_period
+
+METHOD_NAME = "Histogram"
+
+# TSB-AD-M plain HBOS: Optimal_Multi_algo_HP_dict["HBOS"] = {"n_bins": 30,
+# "tol": 0.5} (forks/TSB-AD/TSB_AD/HP_list.py) maps n_bins -> bins; the
+# wrapper default run_HBOS(slidingWindow=1) keeps the per-point histogram.
+# pyod's tol (tolerance for samples falling outside the bins) has no
+# counterpart in this implementation, which smooths densities with alpha
+# instead; alpha/normalize keep the HBOS constructor defaults.
+DEFAULT_HP: Mapping[str, Any] = {
+    "window": 1,
+    "bins": 30,
+    "alpha": 0.1,
+    "normalize": True,
+}
+
+# TSB-AD-U subsequence variant: Optimal_Uni_algo_HP_dict["Sub_HBOS"] =
+# {"periodicity": 1, "n_bins": 10}; the window is data-derived (rank-1 period
+# of the full series), so it is injected at runtime instead of living here.
+_UNI_DEFAULT_HP: Mapping[str, Any] = {"bins": 10, "alpha": 0.1, "normalize": True}
+
+
+def _check_scores(scores: np.ndarray, length: int) -> None:
+    if scores.shape != (length,):
+        raise ValueError(f"score length {scores.shape[0]} != series length {length}")
+    if not np.isfinite(scores).all():
+        raise ValueError("scores contain non-finite values")
+
+
+def _resolve_config(full: np.ndarray, hp: Mapping[str, Any] | None) -> HistogramConfig:
+    values: dict[str, Any] = {
+        **(_UNI_DEFAULT_HP if full.shape[1] == 1 else DEFAULT_HP),
+        **(hp or {}),
+    }
+    # Sub_HBOS protocol: periodicity=1 selects the rank-1 period of the
+    # concatenated full series; an explicit hp "window" overrides it.
+    if "window" not in values:
+        values["window"] = find_period(full[:, 0])
+    return HistogramConfig(**values)
+
+
+def evaluate(
+    dataset_dir: str | Path,
+    output_root: str | Path = "benchmarks/Histogram",
+    *,
+    artifact: str | None = None,
+    partition: str | None = "Eva",
+    seed: int = 2024,
+    hp: Mapping[str, Any] | None = None,
+    resume: bool = True,
+) -> pd.DataFrame:
+    """Score every series of one artifact on its train+test full length.
+
+    Univariate series follow the Sub_HBOS protocol (rank-1 period window,
+    10 bins), multivariate series the plain HBOS protocol (per-point
+    window, 30 bins); ``hp`` overrides the selected defaults. Scores are
+    stored under ``output_root`` (already-scored series are skipped when
+    ``resume``) and the per-series metric table is returned.
+    """
+    L.seed_everything(seed)
+    split = load_split(dataset_dir, artifact, partition=partition)
+    unit = unit_dir(output_root, METHOD_NAME, split)
+    for series_id in split.test.ids:
+        if resume and has_score(unit, series_id):
+            continue
+        train_item = split.train[series_id] if split.train is not None else None
+        test_item = split.test[series_id]
+        full = (
+            np.concatenate([train_item.data, test_item.data])
+            if train_item is not None
+            else test_item.data
+        )
+        config = _resolve_config(full, hp)
+        scores = score(torch.from_numpy(full)[None], config)[0].numpy()
+        _check_scores(scores, len(full))
+        save_score(unit, series_id, scores)
+    return write_metrics(split, unit)
+
+
+if __name__ == "__main__":
+    evaluate(
+        dataset_dir="data/processed/tsb-ad/TSB-AD-M/CATSv2",
+        output_root="benchmarks/Histogram",
+    )
