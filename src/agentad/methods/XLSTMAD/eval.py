@@ -68,6 +68,7 @@ def evaluate(
     output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
+    results_root: str | Path = "results/benchmark",
     partition: str | None = "Eva",
     device: str = "cuda",
     seed: int = 2024,
@@ -85,6 +86,7 @@ def evaluate(
     if split.train is None:
         raise ValueError(f"xLSTMAD needs a train archive: {split.unit_name}")
     unit = unit_dir(output_root, METHOD_NAME, split)
+    results = unit_dir(results_root, METHOD_NAME, split)
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
             continue
@@ -101,4 +103,4 @@ def evaluate(
         scores = _score_full(module, full, device)
         _check_scores(scores, len(full), series_id)
         save_score(unit, series_id, scores)
-    return write_metrics(split, unit)
+    return write_metrics(split, unit, results)

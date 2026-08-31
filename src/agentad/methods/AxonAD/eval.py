@@ -70,6 +70,7 @@ def evaluate(
     output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
+    results_root: str | Path = "results/benchmark",
     partition: str | None = "Eva",
     device: str = "cuda",
     seed: int = 2024,
@@ -87,6 +88,7 @@ def evaluate(
             f"no train archive for {split.unit_name}; AxonAD is semi-supervised"
         )
     unit = unit_dir(output_root, METHOD_NAME, split)
+    results = unit_dir(results_root, METHOD_NAME, split)
     config = build_config(split.test.n_features, hp)
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
@@ -113,4 +115,4 @@ def evaluate(
         )
         _check_scores(scores, len(full), series_id)
         save_score(unit, series_id, scores)
-    return write_metrics(split, unit)
+    return write_metrics(split, unit, results)

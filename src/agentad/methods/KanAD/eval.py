@@ -74,6 +74,7 @@ def evaluate(
     output_root: str | Path = f"benchmarks/{METHOD_NAME}",
     *,
     artifact: str | None = None,
+    results_root: str | Path = "results/benchmark",
     partition: str | None = "Eva",
     device: str = "cuda",
     seed: int = 2024,
@@ -88,6 +89,7 @@ def evaluate(
             f"split in {dataset_dir}"
         )
     unit = unit_dir(output_root, METHOD_NAME, split)
+    results = unit_dir(results_root, METHOD_NAME, split)
     config = _resolve_config(hp)
     ckpt_dir = checkpoints_dir(unit)
     for series_id in split.test.ids:
@@ -109,4 +111,4 @@ def evaluate(
         scores = _score_full_length(module, z_full, device=device)
         _check_scores(scores, len(full), series_id)
         save_score(unit, series_id, scores)
-    return write_metrics(split, unit)
+    return write_metrics(split, unit, results)

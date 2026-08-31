@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Self
 
 import torch
 from torch import Tensor, nn
@@ -91,7 +91,7 @@ class TSPulse(nn.Module):
         config: TSPulseConfig,
         model_name_or_path: str | None = None,
         **kwargs: Any,
-    ) -> "TSPulse":
+    ) -> Self:
         _, ReferenceModel = _reference_types()
         source = model_name_or_path or config.pretrained_model_name
         if source is None:

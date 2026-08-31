@@ -154,6 +154,7 @@ def evaluate(
     output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
+    results_root: str | Path = "results/benchmark",
     partition: str | None = "Eva",
     seed: int = 2024,
     hp: Mapping[str, Any] | None = None,
@@ -168,7 +169,8 @@ def evaluate(
     ``resume``) and the per-series metric table is returned.
     """
     split = load_split(dataset_dir, artifact, partition=partition)
-    unit = unit_dir(output_root, METHOD_NAME, split)
+    unit = unit_dir(output_root, f"baseline/{METHOD_NAME}", split)
+    results = unit_dir(results_root, f"baseline/{METHOD_NAME}", split)
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
             continue
@@ -184,4 +186,4 @@ def evaluate(
         scores = score(torch.from_numpy(full)[None], config)[0].numpy()
         _check_scores(scores, len(full))
         save_score(unit, series_id, scores)
-    return write_metrics(split, unit)
+    return write_metrics(split, unit, results)

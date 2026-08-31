@@ -155,6 +155,7 @@ def evaluate(
     output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
+    results_root: str | Path = "results/benchmark",
     partition: str | None = "Eva",
     seed: int = 2024,
     hp: Mapping[str, Any] | None = None,
@@ -167,7 +168,8 @@ def evaluate(
     ``write_metrics`` frame.
     """
     split = load_split(dataset_dir, artifact, partition=partition)
-    unit = unit_dir(output_root, "KMeansDistance", split)
+    unit = unit_dir(output_root, "baseline/KMeansDistance", split)
+    results = unit_dir(results_root, "baseline/KMeansDistance", split)
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
             continue
@@ -194,4 +196,4 @@ def evaluate(
         if scores.shape != (len(full),) or not np.isfinite(scores).all():
             raise ValueError(f"{series_id}: scores must be finite and full-length")
         save_score(unit, series_id, scores)
-    return write_metrics(split, unit)
+    return write_metrics(split, unit, results)

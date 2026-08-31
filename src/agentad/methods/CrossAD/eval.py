@@ -130,6 +130,7 @@ def evaluate(
     output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
+    results_root: str | Path = "results/benchmark",
     partition: str | None = "Eva",
     device: str = "cuda",
     seed: int = 2024,
@@ -141,6 +142,7 @@ def evaluate(
     skipped."""
     split = load_split(dataset_dir, artifact, partition=partition)
     unit = unit_dir(output_root, METHOD_NAME, split)
+    results = unit_dir(results_root, METHOD_NAME, split)
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
             continue
@@ -161,4 +163,4 @@ def evaluate(
         scores = score_series(module, full, module.config, device=device)
         _check_scores(scores, len(full))
         save_score(unit, series_id, scores)
-    return write_metrics(split, unit)
+    return write_metrics(split, unit, results)

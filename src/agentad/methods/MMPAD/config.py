@@ -40,19 +40,19 @@ class MMPADConfig:
             raise ValueError("epsilon must be positive")
 
     @classmethod
-    def original_default(cls, *, subsequence_length: int) -> Self:
+    def original_default(cls, *, subsequence_length: int | None) -> Self:
         return cls(subsequence_length=subsequence_length)
 
     @classmethod
-    def original_univariate_hp0(cls, *, subsequence_length: int) -> Self:
+    def original_univariate_hp0(cls, *, subsequence_length: int | None) -> Self:
         return cls(subsequence_length=subsequence_length, neighbors=5)
 
     @classmethod
-    def original_univariate_hp1(cls, *, subsequence_length: int) -> Self:
+    def original_univariate_hp1(cls, *, subsequence_length: int | None) -> Self:
         return cls(subsequence_length=subsequence_length, neighbors=10)
 
     @classmethod
-    def original_multivariate_hp0(cls, *, subsequence_length: int) -> Self:
+    def original_multivariate_hp0(cls, *, subsequence_length: int | None) -> Self:
         return cls(
             subsequence_length=subsequence_length,
             dimensions=0.7,
@@ -60,7 +60,7 @@ class MMPADConfig:
         )
 
     @classmethod
-    def original_multivariate_hp1(cls, *, subsequence_length: int) -> Self:
+    def original_multivariate_hp1(cls, *, subsequence_length: int | None) -> Self:
         return cls(
             subsequence_length=subsequence_length,
             dimensions=0.5,
@@ -68,7 +68,9 @@ class MMPADConfig:
         )
 
     @classmethod
-    def original_configs(cls, *, subsequence_length: int) -> dict[str, Self]:
+    def original_configs(
+        cls, *, subsequence_length: int | None
+    ) -> dict[str, Self]:
         return {
             "default": cls.original_default(subsequence_length=subsequence_length),
             "univariate_hp0": cls.original_univariate_hp0(

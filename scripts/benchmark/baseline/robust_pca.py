@@ -101,7 +101,7 @@ def main() -> None:
         help="run logs land under <root>/benchmark/<Method>/<source>/<artifact>.log",
     )
     args = parser.parse_args()
-    handle = _open_log(args, "RobustPCA")
+    handle = _open_log(args, "baseline/RobustPCA")
     stdout, stderr = sys.stdout, sys.stderr
     sys.stdout = _Tee(stdout, handle)
     sys.stderr = _Tee(stderr, handle)

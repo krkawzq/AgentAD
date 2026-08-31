@@ -106,6 +106,7 @@ def evaluate(
     output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
+    results_root: str | Path = "results/benchmark",
     partition: str | None = "Eva",
     device: str = "cuda",
     seed: int = 2024,
@@ -119,6 +120,7 @@ def evaluate(
     """
     split = load_split(dataset_dir, artifact, partition=partition)
     unit = unit_dir(output_root, METHOD_NAME, split)
+    results = unit_dir(results_root, METHOD_NAME, split)
     config = replace(DADAConfig.original_pretrained(), **{**DEFAULT_HP, **(hp or {})})
     target = torch.device(device)
     model = DADA.from_official_checkpoint(CHECKPOINT_PATH).to(target)
@@ -145,4 +147,4 @@ def evaluate(
                 f"DADA produced invalid scores for {series_id}: shape={scores.shape}"
             )
         save_score(unit, series_id, scores)
-    return write_metrics(split, unit)
+    return write_metrics(split, unit, results)

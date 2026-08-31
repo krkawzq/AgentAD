@@ -65,6 +65,7 @@ def evaluate(
     output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
+    results_root: str | Path = "results/benchmark",
     partition: str | None = "Eva",
     device: str = "cuda",
     seed: int = 2024,
@@ -80,6 +81,7 @@ def evaluate(
     if split.train is None:
         raise FileNotFoundError(f"AERCA needs a normal train prefix: {split.unit_name}")
     unit = unit_dir(output_root, METHOD_NAME, split)
+    results = unit_dir(results_root, METHOD_NAME, split)
     pending = [
         series_id
         for series_id in split.test.ids
@@ -105,4 +107,4 @@ def evaluate(
             scores = model.score(x[None].to(target))[0].cpu().numpy()
             _check_scores(scores, len(full))
             save_score(unit, series_id, scores)
-    return write_metrics(split, unit)
+    return write_metrics(split, unit, results)

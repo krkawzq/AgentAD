@@ -106,6 +106,7 @@ def evaluate(
     output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
+    results_root: str | Path = "results/benchmark",
     partition: str | None = "Eva",
     device: str = "cuda",
     seed: int = 2024,
@@ -121,9 +122,10 @@ def evaluate(
     settings: Mapping[str, Any] = {**DEFAULT_HP, **(hp or {})}
     split = load_split(dataset_dir, artifact, partition=partition)
     unit = unit_dir(output_root, METHOD_NAME, split)
-    device = torch.device(device)
+    results = unit_dir(results_root, METHOD_NAME, split)
+    target = torch.device(device)
     L.seed_everything(seed)
-    model = _load_model(_series_channels(split), settings, device)
+    model = _load_model(_series_channels(split), settings, target)
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
             continue
@@ -134,7 +136,7 @@ def evaluate(
             if train_item is not None
             else test_item.data
         )
-        scores = _score_full(model, full, device)
+        scores = _score_full(model, full, target)
         _check_scores(scores, len(full))
         save_score(unit, series_id, scores)
-    return write_metrics(split, unit)
+    return write_metrics(split, unit, results)

@@ -59,7 +59,9 @@ def _test_archives(dataset_dir: Path) -> list[Path]:
     return sorted(dataset_dir.glob("*.test.zarr.zip"))
 
 
-def _resolve_pair(dataset_dir: Path, artifact: str | None) -> tuple[str, Path, Path]:
+def _resolve_pair(
+    dataset_dir: Path, artifact: str | None
+) -> tuple[str, Path | None, Path]:
     """Return ``(artifact, train_archive_or_none, test_archive)``."""
     tests = _test_archives(dataset_dir)
     if not tests:

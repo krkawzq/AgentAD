@@ -64,6 +64,7 @@ def evaluate(
     output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
+    results_root: str | Path = "results/benchmark",
     partition: str | None = "Eva",
     device: str = "cuda",
     seed: int = 2024,
@@ -84,6 +85,7 @@ def evaluate(
             f"CARLA is semisupervised; {split.unit_name} has no train split"
         )
     unit = unit_dir(output_root, METHOD_NAME, split)
+    results = unit_dir(results_root, METHOD_NAME, split)
     target = torch.device(device)
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
@@ -131,4 +133,4 @@ def evaluate(
         )
         _check_scores(scores, full.shape[0])
         save_score(unit, series_id, scores)
-    return write_metrics(split, unit)
+    return write_metrics(split, unit, results)

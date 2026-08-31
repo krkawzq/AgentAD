@@ -100,6 +100,7 @@ def evaluate(
     output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
+    results_root: str | Path = "results/benchmark",
     partition: str | None = "Eva",
     seed: int = 2024,
     hp: Mapping[str, Any] | None = None,
@@ -113,7 +114,8 @@ def evaluate(
     ``seed`` re-seeds the global RNG state for protocol parity.
     """
     split = load_split(dataset_dir, artifact, partition=partition)
-    unit = unit_dir(output_root, "SpectralResidual", split)
+    unit = unit_dir(output_root, "baseline/SpectralResidual", split)
+    results = unit_dir(results_root, "baseline/SpectralResidual", split)
     config = replace(SpectralResidualConfig(), **{**DEFAULT_HP, **(hp or {})})
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
@@ -130,4 +132,4 @@ def evaluate(
         if scores.shape != (len(full),) or not np.isfinite(scores).all():
             raise ValueError(f"invalid scores for series {series_id!r}")
         save_score(unit, series_id, scores)
-    return write_metrics(split, unit)
+    return write_metrics(split, unit, results)

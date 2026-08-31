@@ -127,6 +127,8 @@ def _fine_tune(
     if len(segment) < config.context_length:
         return None
     create_valid = len(segment) >= _SMALL_SEGMENT
+    train_set: Dataset[dict[str, Tensor]]
+    valid_set: Dataset[dict[str, Tensor]]
     if create_valid:
         split_at = int((1 - config.finetune_validation) * len(segment))
         train_set = _PatchMaskWindows(segment[:split_at], config)

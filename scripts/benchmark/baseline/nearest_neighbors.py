@@ -101,7 +101,7 @@ def main() -> None:
         help="run logs land under <root>/benchmark/<Method>/<source>/<artifact>.log",
     )
     args = parser.parse_args()
-    handle = _open_log(args, "NearestNeighbors")
+    handle = _open_log(args, "baseline/NearestNeighbors")
     stdout, stderr = sys.stdout, sys.stderr
     sys.stdout = _Tee(stdout, handle)
     sys.stderr = _Tee(stderr, handle)

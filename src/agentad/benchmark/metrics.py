@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 
@@ -21,15 +22,18 @@ __all__ = ["write_metrics"]
 def write_metrics(
     split: DatasetSplit,
     unit: str | Path,
+    results_dir: str | Path,
     *,
     metrics: Iterable[MetricName] = DEFAULT_METRICS,
     label_column: str = "label",
-    sliding_window: int | str = "auto",
+    sliding_window: int | Literal["auto"] = "auto",
 ) -> pd.DataFrame:
     """Evaluate every stored score of one dataset unit and write metrics.csv.
 
-    Series without a stored score stay in the table with an ``error`` row so
-    partial runs remain auditable. Returns the per-series frame.
+    Scores are read from ``unit`` (under the outputs root); the metric table
+    is written into ``results_dir`` (under the results root). Series without
+    a stored score stay in the table with an ``error`` row so partial runs
+    remain auditable. Returns the per-series frame.
     """
     scores = {
         series_id: load_score(unit, series_id)

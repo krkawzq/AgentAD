@@ -149,6 +149,7 @@ def evaluate(
     output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
+    results_root: str | Path = "results/benchmark",
     partition: str | None = "Eva",
     seed: int = 2024,
     hp: Mapping[str, Any] | None = None,
@@ -164,7 +165,8 @@ def evaluate(
     protocol parity.
     """
     split = load_split(dataset_dir, artifact, partition=partition)
-    unit = unit_dir(output_root, "LocalPolynomial", split)
+    unit = unit_dir(output_root, "baseline/LocalPolynomial", split)
+    results = unit_dir(results_root, "baseline/LocalPolynomial", split)
     overrides = {**DEFAULT_HP, **(hp or {})}
     window_override = overrides.pop("window", None)
     for series_id in split.test.ids:
@@ -184,4 +186,4 @@ def evaluate(
         if scores.shape != (len(full),) or not np.isfinite(scores).all():
             raise ValueError(f"invalid scores for series {series_id!r}")
         save_score(unit, series_id, scores)
-    return write_metrics(split, unit)
+    return write_metrics(split, unit, results)

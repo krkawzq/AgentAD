@@ -33,13 +33,18 @@ from .model import PaAnoLightningModule
 from .train import METHOD_NAME, build_config, train_series
 
 
-def _full_series(split: DatasetSplit, series_id: str) -> np.ndarray:
-    """Concatenate the train prefix and test suffix into one ``[T, C]`` array."""
+def _train_segment(split: DatasetSplit, series_id: str) -> np.ndarray:
+    """Return one series' train segment, failing loudly when it is missing."""
     if split.train is None or series_id not in split.train:
         raise ValueError(f"PaAno requires a train segment for series {series_id!r}")
-    train_item = split.train[series_id]
+    return split.train[series_id].data
+
+
+def _full_series(split: DatasetSplit, series_id: str) -> np.ndarray:
+    """Concatenate the train prefix and test suffix into one ``[T, C]`` array."""
+    train_data = _train_segment(split, series_id)
     test_item = split.test[series_id]
-    return np.concatenate([train_item.data, test_item.data], axis=0)
+    return np.concatenate([train_data, test_item.data], axis=0)
 
 
 def _module_from_checkpoint(
@@ -72,7 +77,7 @@ def _load_or_train(
     ckpt_path = checkpoints_dir(unit) / f"{series_id}.pt"
     if resume and ckpt_path.is_file():
         return _module_from_checkpoint(ckpt_path, device)
-    train_data = split.train[series_id].data
+    train_data = _train_segment(split, series_id)
     return train_series(train_data, config=config, device=device, seed=seed)
 
 
@@ -100,6 +105,7 @@ def evaluate(
     output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
+    results_root: str | Path = "results/benchmark",
     partition: str | None = "Eva",
     device: str = "cuda",
     seed: int = 2024,
@@ -114,6 +120,7 @@ def evaluate(
     """
     split = load_split(dataset_dir, artifact, partition=partition)
     unit = unit_dir(output_root, METHOD_NAME, split)
+    results = unit_dir(results_root, METHOD_NAME, split)
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
             continue
@@ -132,4 +139,4 @@ def evaluate(
         scores = _score_full(module, full, device)
         _check_scores(scores, full.shape[0])
         save_score(unit, series_id, scores)
-    return write_metrics(split, unit)
+    return write_metrics(split, unit, results)

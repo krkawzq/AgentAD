@@ -118,6 +118,7 @@ def evaluate_zero_shot(
     output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
+    results_root: str | Path = "results/benchmark",
     partition: str | None = "Eva",
     device: str = "cuda",
     seed: int = 2024,
@@ -127,6 +128,7 @@ def evaluate_zero_shot(
     """Score every series of one artifact pair with the official pretrained model."""
     split = load_split(dataset_dir, artifact, partition=partition)
     unit = unit_dir(output_root, ZERO_SHOT_NAME, split)
+    results = unit_dir(results_root, ZERO_SHOT_NAME, split)
     config, batch_size = _resolve_zero_shot_config(split.test.n_features, hp)
     L.seed_everything(seed)
     model = TSPulseZeroShot.from_pretrained(
@@ -153,7 +155,7 @@ def evaluate_zero_shot(
             series_id,
             _score_full(model, full, device=device, batch_size=batch_size),
         )
-    return write_metrics(split, unit)
+    return write_metrics(split, unit, results)
 
 
 def evaluate_finetune(
@@ -161,6 +163,7 @@ def evaluate_finetune(
     output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
+    results_root: str | Path = "results/benchmark",
     partition: str | None = "Eva",
     device: str = "cuda",
     seed: int = 2024,
@@ -170,6 +173,7 @@ def evaluate_finetune(
     """Score every series with its fine-tuned checkpoint, fine-tuning in memory when absent."""
     split = load_split(dataset_dir, artifact, partition=partition)
     unit = unit_dir(output_root, METHOD_NAME, split)
+    results = unit_dir(results_root, METHOD_NAME, split)
     config = _resolve_finetune_config(split.test.n_features, hp)
     zero_shot: TSPulseZeroShot | None = None
     for series_id in split.test.ids:
@@ -211,4 +215,4 @@ def evaluate_finetune(
                 model, full, device=device, batch_size=config.finetune_batch_size
             ),
         )
-    return write_metrics(split, unit)
+    return write_metrics(split, unit, results)

@@ -54,6 +54,7 @@ def evaluate(
     output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
+    results_root: str | Path = "results/benchmark",
     partition: str | None = "Eva",
     device: str = "cuda",
     seed: int = 2024,
@@ -71,6 +72,7 @@ def evaluate(
     if split.train is None:
         raise ValueError("ScatterAD is semisupervised and requires a train split")
     unit = unit_dir(output_root, METHOD_NAME, split)
+    results = unit_dir(results_root, METHOD_NAME, split)
     checkpoint = checkpoint_path(unit, split.name)
     if checkpoint.is_file():
         payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
@@ -93,4 +95,4 @@ def evaluate(
         scores = module.model.score(series)[0].cpu().numpy()
         _check_scores(scores, len(full))
         save_score(unit, series_id, scores)
-    return write_metrics(split, unit)
+    return write_metrics(split, unit, results)

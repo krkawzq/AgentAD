@@ -60,10 +60,10 @@ def _check_scores(scores: np.ndarray, length: int) -> None:
         raise ValueError("MMPAD produced non-finite scores")
 
 
-def _score_series(full: np.ndarray, hp: Mapping[str, Any]) -> np.ndarray:
+def _score_series(full: np.ndarray, hp: Mapping[str, Any], device: str) -> np.ndarray:
     """Self-join score one full-length ``[T, C]`` series."""
     config = _build_config(full.shape[1], hp)
-    scores = score(torch.from_numpy(full)[None], config)[0].numpy()
+    scores = score(torch.from_numpy(full).to(device)[None], config)[0].cpu().numpy()
     _check_scores(scores, len(full))
     return scores
 
@@ -73,7 +73,9 @@ def evaluate(
     output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
+    results_root: str | Path = "results/benchmark",
     partition: str | None = "Eva",
+    device: str = "cuda",
     seed: int = 2024,
     hp: Mapping[str, Any] | None = None,
     resume: bool = True,
@@ -87,6 +89,7 @@ def evaluate(
     """
     split = load_split(dataset_dir, artifact, partition=partition)
     unit = unit_dir(output_root, METHOD_NAME, split)
+    results = unit_dir(results_root, METHOD_NAME, split)
     merged_hp = {**DEFAULT_HP, **(hp or {})}
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
@@ -99,5 +102,5 @@ def evaluate(
             if train_item is not None
             else np.asarray(test_item.data)
         )
-        save_score(unit, series_id, _score_series(full, merged_hp))
-    return write_metrics(split, unit)
+        save_score(unit, series_id, _score_series(full, merged_hp, device))
+    return write_metrics(split, unit, results)
