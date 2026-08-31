@@ -127,7 +127,7 @@ def _train_item(split: DatasetSplit, series_id: str) -> SeriesItem:
 
 def evaluate(
     dataset_dir: str | Path,
-    output_root: str | Path = "benchmarks/CrossAD",
+    output_root: str | Path = "benchmarks",
     *,
     artifact: str | None = None,
     partition: str | None = "Eva",

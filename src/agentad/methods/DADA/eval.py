@@ -103,7 +103,7 @@ def _score_series(
 
 def evaluate(
     dataset_dir: str | Path,
-    output_root: str | Path = "benchmarks/DADA",
+    output_root: str | Path = "benchmarks",
     *,
     artifact: str | None = None,
     partition: str | None = "Eva",

@@ -106,7 +106,7 @@ def _check_scores(scores: np.ndarray, length: int) -> None:
 
 def evaluate(
     dataset_dir: str | Path,
-    output_root: str | Path = "benchmarks/Copula",
+    output_root: str | Path = "benchmarks",
     *,
     artifact: str | None = None,
     partition: str | None = "Eva",

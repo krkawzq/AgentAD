@@ -113,7 +113,7 @@ DEFAULT_HP: Mapping[str, Any] = {
 
 def evaluate(
     dataset_dir: str | Path,
-    output_root: str | Path = "benchmarks/Fourier",
+    output_root: str | Path = "benchmarks",
     *,
     artifact: str | None = None,
     partition: str | None = "Eva",

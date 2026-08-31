@@ -203,7 +203,7 @@ def _train_segment(split: DatasetSplit, series_id: str) -> np.ndarray:
 
 def train(
     dataset_dir: str | Path,
-    output_root: str | Path = "benchmarks/PaAno",
+    output_root: str | Path = "benchmarks",
     *,
     artifact: str | None = None,
     partition: str | None = "Eva",

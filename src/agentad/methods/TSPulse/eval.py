@@ -115,7 +115,7 @@ def _load_finetuned(
 
 def evaluate_zero_shot(
     dataset_dir: str | Path,
-    output_root: str | Path = "benchmarks/TSPulse-ZS",
+    output_root: str | Path = "benchmarks",
     *,
     artifact: str | None = None,
     partition: str | None = "Eva",
@@ -156,7 +156,7 @@ def evaluate_zero_shot(
 
 def evaluate_finetune(
     dataset_dir: str | Path,
-    output_root: str | Path = "benchmarks/TSPulse-FT",
+    output_root: str | Path = "benchmarks",
     *,
     artifact: str | None = None,
     partition: str | None = "Eva",

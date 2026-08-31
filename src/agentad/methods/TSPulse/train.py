@@ -189,7 +189,7 @@ def train_series(
 
 def train(
     dataset_dir: str | Path,
-    output_root: str | Path = "benchmarks/TSPulse-FT",
+    output_root: str | Path = "benchmarks",
     *,
     artifact: str | None = None,
     partition: str | None = "Eva",

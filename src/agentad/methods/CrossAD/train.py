@@ -185,7 +185,7 @@ def _train_data(split: DatasetSplit, series_id: str) -> np.ndarray:
 
 def train(
     dataset_dir: str | Path,
-    output_root: str | Path = "benchmarks/CrossAD",
+    output_root: str | Path = "benchmarks",
     *,
     artifact: str | None = None,
     partition: str | None = "Eva",

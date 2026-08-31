@@ -133,7 +133,7 @@ def save_checkpoint(
 
 def train(
     dataset_dir: str | Path,
-    output_root: str | Path = "benchmarks/xLSTMAD",
+    output_root: str | Path = "benchmarks",
     *,
     artifact: str | None = None,
     partition: str | None = "Eva",

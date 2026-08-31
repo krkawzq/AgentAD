@@ -202,7 +202,7 @@ def _config(
 
 def evaluate(
     dataset_dir: str | Path,
-    output_root: str | Path = "benchmarks/ExtendedIsolationForest",
+    output_root: str | Path = "benchmarks",
     *,
     artifact: str | None = None,
     partition: str | None = "Eva",

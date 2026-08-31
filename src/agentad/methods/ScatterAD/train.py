@@ -215,7 +215,7 @@ def checkpoint_path(unit: str | Path, artifact: str) -> Path:
 
 def train(
     dataset_dir: str | Path,
-    output_root: str | Path = "benchmarks/ScatterAD",
+    output_root: str | Path = "benchmarks",
     *,
     artifact: str | None = None,
     partition: str | None = "Eva",

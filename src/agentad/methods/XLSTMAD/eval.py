@@ -65,7 +65,7 @@ def _check_scores(scores: np.ndarray, length: int, series_id: str) -> None:
 
 def evaluate(
     dataset_dir: str | Path,
-    output_root: str | Path = "benchmarks/xLSTMAD",
+    output_root: str | Path = "benchmarks",
     *,
     artifact: str | None = None,
     partition: str | None = "Eva",

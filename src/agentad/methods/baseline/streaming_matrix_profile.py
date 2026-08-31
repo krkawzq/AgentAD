@@ -89,7 +89,7 @@ DEFAULT_HP: Mapping[str, Any] = {"warmup": 100, "window": 50}
 
 def evaluate(
     dataset_dir: str | Path,
-    output_root: str | Path = "benchmarks/StreamingMatrixProfile",
+    output_root: str | Path = "benchmarks",
     *,
     artifact: str | None = None,
     partition: str | None = "Eva",
