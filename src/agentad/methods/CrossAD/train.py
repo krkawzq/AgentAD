@@ -8,7 +8,7 @@ training windows, non-overlapping validation windows, type1 lr decay.
 from __future__ import annotations
 
 import csv
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, replace
 from functools import lru_cache
 from pathlib import Path
@@ -39,7 +39,9 @@ DEFAULT_HP: Mapping[str, Any] = {
     "patience": 3,
 }
 
-_SETTING_FACTORIES = {
+# ``None`` (no authors' mapping, e.g. TSB-AD-M) falls back to the default
+# factory through ``dict.get``.
+_SETTING_FACTORIES: dict[int | None, Callable[[], CrossADConfig]] = {
     1: CrossADConfig.original_tsb_1,
     2: CrossADConfig.original_tsb_2,
     3: CrossADConfig.original_tsb_3,

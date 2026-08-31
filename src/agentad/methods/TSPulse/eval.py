@@ -196,6 +196,7 @@ def evaluate_finetune(
                 f"context_length + 1 ({config.context_length + 1})"
             )
             continue
+        model: TSPulseFineTune | TSPulseZeroShot | None
         model = _load_finetuned(unit, series_id, device)
         if model is None and train_item is not None:
             model = train_series(train_item.data, device=device, seed=seed, hp=hp)

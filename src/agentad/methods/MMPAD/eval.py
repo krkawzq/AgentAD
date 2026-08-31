@@ -1,4 +1,4 @@
-"""MMPAD evaluation (形态 C, pure algorithm, full-length self-join scoring).
+"""MMPAD evaluation (form C, pure algorithm, full-length self-join scoring).
 
 Protocol source: the official TSB-AD unsupervised usage — ``run_MMPAD``
 receives the concatenated train+test series with the HP of

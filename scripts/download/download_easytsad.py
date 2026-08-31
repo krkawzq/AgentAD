@@ -30,7 +30,7 @@ def main() -> None:
         print(f"cloning {REPO_URL} -> {args.output_dir}")
         subprocess.run(["git", "clone", REPO_URL, str(args.output_dir)], check=True)
 
-    # 清理 git 元数据，仅保留数据
+    # strip git metadata, keeping only the data
     shutil.rmtree(args.output_dir / ".git", ignore_errors=True)
     print(f"done: {args.output_dir}")
     for sub in ["UTS", "MTS"]:

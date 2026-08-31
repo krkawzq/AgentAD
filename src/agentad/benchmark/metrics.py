@@ -51,7 +51,7 @@ def write_metrics(
         sliding_window=sliding_window,
     )
     frame = result.per_series
-    path = metrics_path(unit)
+    path = metrics_path(results_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(path, index=False)
     return frame

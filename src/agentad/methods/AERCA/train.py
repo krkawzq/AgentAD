@@ -10,7 +10,7 @@ from typing import Any, NamedTuple
 import lightning as L
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 from ...benchmark import checkpoints_dir, load_split, unit_dir
 
@@ -83,15 +83,30 @@ def _split_80_20(
     return series[:cut], series[cut:]
 
 
-def _length_batches(series: Sequence[np.ndarray]) -> list[torch.Tensor]:
+class _StackedBatches(Dataset[torch.Tensor]):
+    """Pre-stacked batches; with ``batch_size=None`` each tensor is one batch."""
+
+    def __init__(self, batches: Sequence[torch.Tensor]) -> None:
+        self._batches = list(batches)
+
+    def __len__(self) -> int:
+        return len(self._batches)
+
+    def __getitem__(self, index: int) -> torch.Tensor:
+        return self._batches[index]
+
+
+def _length_batches(series: Sequence[np.ndarray]) -> _StackedBatches:
     """Stack same-length series into one [batch, time, feature] tensor each."""
     groups: dict[int, list[np.ndarray]] = {}
     for data in series:
         groups.setdefault(len(data), []).append(data)
-    return [
-        torch.from_numpy(np.stack(groups[length]).astype(np.float32))
-        for length in sorted(groups)
-    ]
+    return _StackedBatches(
+        [
+            torch.from_numpy(np.stack(groups[length]).astype(np.float32))
+            for length in sorted(groups)
+        ]
+    )
 
 
 def train_dataset(

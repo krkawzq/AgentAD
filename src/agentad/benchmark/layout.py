@@ -1,10 +1,10 @@
-"""Result layout under ``<output_root>/<Method>/<source>/<dataset>``.
+"""Scores and checkpoints under ``<output_root>/<Method>/<source>/<dataset>``, metric tables under ``<results_root>/<Method>/<source>/<dataset>``.
 
 Every method owns one directory per evaluated dataset unit::
 
     <output_root>/<Method>/<source>/<dataset>/scores/<series_id>.npy
     <output_root>/<Method>/<source>/<dataset>/checkpoints/...
-    <output_root>/<Method>/<source>/<dataset>/metrics.csv
+    <results_root>/<Method>/<source>/<dataset>/metrics.csv
 
 Scores are one flat ``float64`` array per series, as long as the
 concatenated train+test full length. ``has_score`` is the resume check:

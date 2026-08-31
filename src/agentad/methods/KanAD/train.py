@@ -1,4 +1,4 @@
-"""形态 A 逐序列训练：KAN-AD 一步预测，协议见 ``KANADConfig.original_default``."""
+"""Form A per-series training: KAN-AD one-step prediction, protocol in ``KANADConfig.original_default``."""
 
 from __future__ import annotations
 
@@ -19,10 +19,11 @@ from .model import KANAD, KANADLightningModule
 
 METHOD_NAME = "KAN-AD"
 
-# 原始 config.toml [Model_Params.Default] 加 kanad.py 的 EarlyStoppingTorch
-# patience=3；StepLR(step 5, gamma 0.75) 与早停 min_delta=1e-4 内建于
-# KANADConfig.original_default。模型通道无关（逐特征独立预测），特征数由
-# 输入形状决定，无需配置字段。
+# Original config.toml [Model_Params.Default] plus kanad.py's
+# EarlyStoppingTorch: patience=3; StepLR(step 5, gamma 0.75) and early
+# stopping min_delta=1e-4 are built into KANADConfig.original_default. The
+# model is channel-independent (per-feature forecasting), so the feature
+# count comes from the input shape and needs no config field.
 DEFAULT_HP: Mapping[str, Any] = {
     "window": 96,
     "order": 2,
@@ -32,7 +33,8 @@ DEFAULT_HP: Mapping[str, Any] = {
     "early_stopping_patience": 3,
 }
 
-# EasyTSAD GlobalCfg 以 valid_proportion=0.2 从训练段尾部切出验证段。
+# EasyTSAD GlobalCfg carves the validation segment from the training tail
+# with valid_proportion=0.2.
 _VALID_PROPORTION = 0.2
 
 
@@ -58,7 +60,7 @@ def difference_standardize(
     diff_train = diff_full[:n_train_diff]
     mean = diff_train.mean(axis=0)
     std = diff_train.std(axis=0)
-    # EasyTSAD 的 StandardScaler 把零尺度替换为 1。
+    # EasyTSAD's StandardScaler replaces zero scales with 1.
     std = np.where(std == 0, 1.0, std)
     z_full = (diff_full - mean) / std
     return z_full[:n_train_diff], z_full
@@ -68,7 +70,7 @@ def _split_valid(z_train: np.ndarray, window: int) -> tuple[np.ndarray, np.ndarr
     """Carve the validation tail off the differenced train segment."""
     valid_len = max(1, int(len(z_train) * _VALID_PROPORTION))
     fit, valid = z_train[:-valid_len], z_train[-valid_len:]
-    needed = window + 1  # pairs() 需要 window 个上下文点加 1 个目标点
+    needed = window + 1  # pairs() needs window context points plus 1 target
     if len(fit) < needed or len(valid) < needed:
         raise ValueError(
             f"train segment too short for window={window}: {len(fit)} fit / "

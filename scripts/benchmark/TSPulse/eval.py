@@ -83,6 +83,12 @@ def main() -> None:
         type=Path,
         default=Path("outputs/benchmark"),
     )
+    parser.add_argument(
+        "--results-root",
+        type=Path,
+        default=Path("results/benchmark"),
+        help="metric tables land under <root>/<Method>/<source>/<artifact>/metrics.csv",
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument(
         "--partition",
@@ -117,6 +123,7 @@ def main() -> None:
         frame = entry(
             dataset_dir=args.dataset_dir,
             output_root=args.output_root,
+            results_root=args.results_root,
             artifact=args.artifact,
             partition=None if args.partition.lower() == 'none' else args.partition,
             device=args.device,

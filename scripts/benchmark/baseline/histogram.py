@@ -78,6 +78,12 @@ def main() -> None:
         default=Path("outputs/benchmark"),
     )
     parser.add_argument(
+        "--results-root",
+        type=Path,
+        default=Path("results/benchmark"),
+        help="metric tables land under <root>/<Method>/<source>/<artifact>/metrics.csv",
+    )
+    parser.add_argument(
         "--partition",
         default="Eva",
         help="benchmark partition filter; 'none' keeps every series",
@@ -109,6 +115,7 @@ def main() -> None:
         frame = evaluate(
             dataset_dir=args.dataset_dir,
             output_root=args.output_root,
+            results_root=args.results_root,
             artifact=args.artifact,
             partition=None if args.partition.lower() == 'none' else args.partition,
             seed=args.seed,

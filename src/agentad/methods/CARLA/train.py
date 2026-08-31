@@ -14,13 +14,13 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import lightning as L
 import numpy as np
 import torch
 from torch import Tensor
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 from ...benchmark import checkpoints_dir, load_split, unit_dir
 
@@ -207,9 +207,30 @@ def _pick_neighbors(
     return near_pool.gather(1, columns)[:, 0], far_pool.gather(1, columns)[:, 0]
 
 
+class CarlaArtifacts(NamedTuple):
+    """Checkpoint artifacts of one series: pretext weights and mined neighbors."""
+
+    pretext_state_dict: dict[str, Tensor]
+    nearest: Tensor
+    furthest: Tensor
+
+
+class _IndexSeries(Dataset[Tensor]):
+    """Row view over one 1-D index tensor for collate-based sampling."""
+
+    def __init__(self, indices: Tensor) -> None:
+        self._indices = indices
+
+    def __len__(self) -> int:
+        return self._indices.shape[0]
+
+    def __getitem__(self, index: int) -> Tensor:
+        return self._indices[index]
+
+
 def _train_series(
     config: CARLAConfig, train_data: Tensor, *, device: torch.device
-) -> tuple[CARLA, dict[str, Tensor]]:
+) -> tuple[CARLA, CarlaArtifacts]:
     """Fit both stages on one series; return the model and ckpt artifacts.
 
     ``train_data`` is the raw train segment: the original injects anomalies
@@ -220,9 +241,9 @@ def _train_series(
     if config.neighbors > MINE_TOP_K:
         raise ValueError("neighbors must not exceed MINE_TOP_K")
     model = CARLA(config).to(device)
-    mean, std = fit_normalization(train_data.cpu().numpy())
-    mean = torch.from_numpy(mean).to(device)
-    std = torch.from_numpy(std).to(device)
+    mean_array, std_array = fit_normalization(train_data.cpu().numpy())
+    mean = torch.from_numpy(mean_array).to(device)
+    std = torch.from_numpy(std_array).to(device)
     raw_windows = sliding_windows(
         train_data.to(device)[None], config.window_length, config.window_stride
     )[0]
@@ -242,7 +263,7 @@ def _train_series(
     _trainer(config.pretext_epochs, device).fit(
         pretext,
         train_dataloaders=DataLoader(
-            torch.arange(windows.shape[0]),
+            _IndexSeries(torch.arange(windows.shape[0])),
             batch_size=config.pretext_batch_size,
             shuffle=True,
             drop_last=True,
@@ -271,14 +292,14 @@ def _train_series(
     _trainer(config.classification_epochs, device).fit(
         classification,
         train_dataloaders=DataLoader(
-            torch.arange(bank.shape[0]),
+            _IndexSeries(torch.arange(bank.shape[0])),
             batch_size=config.classification_batch_size,
             shuffle=True,
             drop_last=True,
             collate_fn=neighbor_collate,
         ),
         val_dataloaders=DataLoader(
-            torch.arange(windows.shape[0] - tail, windows.shape[0]),
+            _IndexSeries(torch.arange(windows.shape[0] - tail, windows.shape[0])),
             batch_size=config.classification_batch_size,
             collate_fn=neighbor_collate,
         ),
@@ -287,11 +308,11 @@ def _train_series(
     # counted the org+injected bank, whose injected pseudo anomalies would
     # bias the vote.
     model.calibrate_normal_clusters(windows)
-    artifacts = {
-        "pretext_state_dict": pretext_state,
-        "nearest": nearest.cpu(),
-        "furthest": furthest.cpu(),
-    }
+    artifacts = CarlaArtifacts(
+        pretext_state_dict=pretext_state,
+        nearest=nearest.cpu(),
+        furthest=furthest.cpu(),
+    )
     return model, artifacts
 
 
@@ -315,17 +336,20 @@ def _save_checkpoint(
     directory: Path,
     config: CARLAConfig,
     model: CARLA,
-    artifacts: Mapping[str, Tensor],
+    artifacts: CarlaArtifacts,
 ) -> None:
     """Store the pretext weights, mined neighbors and calibrated model."""
     directory.mkdir(parents=True, exist_ok=True)
     config_payload = asdict(config)
     torch.save(
-        {"config": config_payload, "state_dict": artifacts["pretext_state_dict"]},
+        {
+            "config": config_payload,
+            "state_dict": artifacts.pretext_state_dict,
+        },
         directory / "pretext.pt",
     )
     torch.save(
-        {"nearest": artifacts["nearest"], "furthest": artifacts["furthest"]},
+        {"nearest": artifacts.nearest, "furthest": artifacts.furthest},
         directory / "neighbors.pt",
     )
     torch.save(

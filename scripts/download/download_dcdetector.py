@@ -18,7 +18,7 @@ try:
 except ImportError:
     sys.exit("gdown is required: pip install gdown")
 
-# (file_id, zip_name) — 来自 DCDetector Google Drive folder 的 9 个打包文件
+# (file_id, zip_name) — the 9 bundled files from the DCDetector Google Drive folder
 FILES = [
     ("1gA6tdxtZaJac-DpovJJIYf3Mw6Lj50t9", "ECG.zip"),
     ("1CKns8asHMcVCUjFyxoupcnYT5eZHZ_s8", "IOPS_KPI.zip"),

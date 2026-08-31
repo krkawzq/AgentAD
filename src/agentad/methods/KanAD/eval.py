@@ -1,4 +1,4 @@
-"""形态 A 评估：逐序列加载或现场训练 KAN-AD，对拼接全长打分（TSB-AD 口径）."""
+"""Form A evaluation: load or train KAN-AD per series on the fly, score the concatenated full length (TSB-AD protocol)."""
 
 from __future__ import annotations
 
@@ -41,7 +41,8 @@ def _load_or_train(
 ) -> KANADLightningModule:
     if checkpoint.is_file():
         return _load_module(checkpoint)
-    # 缺 ckpt 时现场训练单序列，模型只在内存传递、不落盘。
+    # With no checkpoint on disk, train the single series in place; the
+    # model is passed in memory only and never written out.
     return train_series(train_data, config=config, device=device)
 
 
@@ -54,9 +55,11 @@ def _score_full_length(
         .to(device)
     )
     scores = module.model.score(series)[0].cpu().numpy()
-    # np.diff 丢弃原始首点（差分点 k 对应原始点 k+1），迁移版 score 又把
-    # 无上下文的前缀 0 pad 在差分域头部；差分损失的这 1 个点因此在头部
-    # 补 0（prepend），保证最终 scores[i] 对齐原始点 i。
+    # np.diff drops the first original point (differenced point k maps to
+    # original point k+1), and the ported score also pads the context-free
+    # prefix 0 at the head of the differenced domain; the 1 point lost to
+    # differencing is therefore prepended as 0 so that scores[i] aligns
+    # with original point i.
     return np.concatenate(([0.0], scores))
 
 

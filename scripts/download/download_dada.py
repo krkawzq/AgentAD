@@ -26,7 +26,7 @@ def download(file_id: str, zip_path: Path) -> None:
         print(f"skip (exists): {zip_path}")
         return
     print(f"downloading {zip_path.name} from Google Drive...")
-    # --continue 支持断点续传（大文件下载易中断）
+    # --continue enables resuming interrupted downloads (large files break easily)
     gdown.download(
         f"https://drive.google.com/uc?id={file_id}",
         str(zip_path),
@@ -44,7 +44,7 @@ def extract(zip_path: Path, out_dir: Path, subdir: str) -> None:
     tmp = out_dir / f"_{subdir}_tmp"
     with zipfile.ZipFile(zip_path) as zf:
         zf.extractall(tmp)
-    # zip 内可能套一层目录（eval/dataset/...），找到实际内容根
+    # the zip may nest one wrapper directory (eval/dataset/...); locate the actual content root
     inner = tmp
     while len(list(inner.iterdir())) == 1 and list(inner.iterdir())[0].is_dir():
         inner = list(inner.iterdir())[0]
