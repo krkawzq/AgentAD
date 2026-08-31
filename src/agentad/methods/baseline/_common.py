@@ -172,7 +172,10 @@ def znormalized_window_min(
     keep: Callable[[Tensor, Tensor], Tensor],
     *,
     empty_value: float = 0.0,
-    chunk_entries: int = 2**22,
+    # Large chunks keep the per-chunk kernel-launch count low; on GPU the
+    # launch overhead otherwise dominates the quadratic families (the
+    # chunk only bounds temporary memory, not the result).
+    chunk_entries: int = 2**26,
 ) -> Tensor:
     """Minimum z-normalized distance from each window to allowed neighbors.
 

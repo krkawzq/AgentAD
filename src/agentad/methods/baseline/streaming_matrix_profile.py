@@ -96,6 +96,7 @@ def evaluate(
     partition: str | None = "Eva",
     seed: int = 2024,
     hp: Mapping[str, Any] | None = None,
+    device: str = "cpu",
     resume: bool = True,
 ) -> pd.DataFrame:
     """Evaluate the baseline on one dataset artifact.
@@ -120,7 +121,7 @@ def evaluate(
             if train_item is not None
             else test_item.data
         )
-        scores = score(torch.from_numpy(full)[None], config)[0].numpy()
+        scores = score(torch.from_numpy(full)[None].to(device), config)[0].cpu().numpy()
         if scores.shape != (len(full),) or not np.isfinite(scores).all():
             raise ValueError(f"invalid scores for series {series_id!r}")
         save_score(unit, series_id, scores)

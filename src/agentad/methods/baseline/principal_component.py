@@ -97,7 +97,11 @@ def _score_item(
     standardized, keep, vectors, shares = _basis(features, config)
     width = standardized.shape[1]
     kept = int(keep.sum())
-    count = min(_component_count(config, kept, shares), width)
+    # full_matrices=False keeps only min(rows, width) directions; a count
+    # derived from the width-long shares spectrum can exceed that on
+    # wide-short window matrices (rows < width), where the excess shares
+    # are all zero.
+    count = min(_component_count(config, kept, shares), width, vectors.shape[0])
     if count <= 0 or width == 0:
         return standardized.new_zeros(length)
     # Only the leading ``count`` eigenvectors define the fitted basis; the

@@ -92,6 +92,7 @@ def evaluate(
     partition: str | None = "Eva",
     seed: int = 2024,
     hp: Mapping[str, Any] | None = None,
+    device: str = "cpu",
     resume: bool = True,
 ) -> pd.DataFrame:
     """Score every series of one artifact pair over its full train+test
@@ -125,7 +126,7 @@ def evaluate(
             overrides["window"] = 1
         overrides.update(hp or {})
         config = replace(NearestNeighborsConfig(), **overrides)
-        scores = score(torch.from_numpy(full)[None], config)[0].numpy()
+        scores = score(torch.from_numpy(full)[None].to(device), config)[0].cpu().numpy()
         if scores.shape != (len(full),) or not np.isfinite(scores).all():
             raise ValueError(f"{series_id}: scores must be finite and full-length")
         save_score(unit, series_id, scores)
