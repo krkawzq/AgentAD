@@ -140,7 +140,7 @@ DEFAULT_HP: Mapping[str, Any] = {"clusters": 4, "alpha": 0.6}
 
 def evaluate(
     dataset_dir: str | Path,
-    output_root: str | Path = "benchmarks",
+    output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
     partition: str | None = "Eva",

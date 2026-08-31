@@ -115,7 +115,7 @@ def _load_finetuned(
 
 def evaluate_zero_shot(
     dataset_dir: str | Path,
-    output_root: str | Path = "benchmarks",
+    output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
     partition: str | None = "Eva",
@@ -158,7 +158,7 @@ def evaluate_zero_shot(
 
 def evaluate_finetune(
     dataset_dir: str | Path,
-    output_root: str | Path = "benchmarks",
+    output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
     partition: str | None = "Eva",

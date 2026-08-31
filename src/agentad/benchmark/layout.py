@@ -33,12 +33,12 @@ __all__ = [
 
 
 def method_root(output_root: str | Path, method: str) -> Path:
-    """Directory of one method, e.g. ``benchmarks/xLSTMAD``."""
+    """Directory of one method, e.g. ``outputs/benchmark/xLSTMAD``."""
     return Path(output_root) / method
 
 
 def unit_dir(output_root: str | Path, method: str, split: DatasetSplit) -> Path:
-    """Directory of one method on one dataset unit, e.g. ``benchmarks/xLSTMAD/TSB-AD-M/CATSv2``."""
+    """Directory of one method on one dataset unit, e.g. ``outputs/benchmark/xLSTMAD/TSB-AD-M/CATSv2``."""
     return method_root(output_root, method) / split.source / split.name
 
 

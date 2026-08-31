@@ -85,7 +85,7 @@ DEFAULT_HP: Mapping[str, Any] = {"window": 1, "neighbors": 50}
 
 def evaluate(
     dataset_dir: str | Path,
-    output_root: str | Path = "benchmarks",
+    output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
     partition: str | None = "Eva",

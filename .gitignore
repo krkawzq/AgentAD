@@ -18,8 +18,6 @@ wheels/
 htmlcov/
 .venv*/
 node_modules/
-uv.lock
-Cargo.lock
 
 # OS / editor / agents
 .DS_Store
@@ -37,4 +35,7 @@ tmp/
 
 # Official pretrained checkpoints
 pretrained/
+
+# Benchmark run artifacts (legacy path: benchmarks/)
 benchmarks/
+outputs/

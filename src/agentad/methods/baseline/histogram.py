@@ -151,7 +151,7 @@ def _resolve_config(full: np.ndarray, hp: Mapping[str, Any] | None) -> Histogram
 
 def evaluate(
     dataset_dir: str | Path,
-    output_root: str | Path = "benchmarks",
+    output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
     partition: str | None = "Eva",
