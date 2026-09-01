@@ -12,7 +12,13 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Subset, TensorDataset
 
-from ...benchmark import checkpoints_dir, load_split, unit_dir
+from ...benchmark import (
+    atomic_write_file,
+    checkpoints_dir,
+    load_split,
+    prepare_run,
+    unit_dir,
+)
 
 from .config import XLSTMADConfig
 from .model import XLSTMADLightningModule
@@ -128,7 +134,8 @@ def save_checkpoint(
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     state = {key: value.detach().cpu() for key, value in module.state_dict().items()}
-    torch.save({"config": asdict(config), "state_dict": state}, path)
+    payload = {"config": asdict(config), "state_dict": state}
+    atomic_write_file(path, lambda handle: torch.save(payload, handle))
 
 
 def train(
@@ -152,6 +159,17 @@ def train(
     if split.train is None:
         raise ValueError(f"xLSTMAD needs a train archive: {split.unit_name}")
     unit = unit_dir(output_root, METHOD_NAME, split)
+    prepare_run(
+        unit,
+        split,
+        method=METHOD_NAME,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+    )
     for series_id in split.test.ids:
         ckpt_path = checkpoints_dir(unit) / f"{series_id}.pt"
         if resume and ckpt_path.is_file():

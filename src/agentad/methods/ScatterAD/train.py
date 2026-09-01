@@ -22,7 +22,14 @@ from torch.utils.data import DataLoader, Dataset
 from ...series import SeriesData
 from .config import ScatterADConfig
 from .model import ScatterADLightningModule
-from ...benchmark import DatasetSplit, checkpoints_dir, load_split, unit_dir
+from ...benchmark import (
+    DatasetSplit,
+    atomic_write_file,
+    checkpoints_dir,
+    load_split,
+    prepare_run,
+    unit_dir,
+)
 
 METHOD_NAME = "ScatterAD"
 
@@ -225,9 +232,20 @@ def train(
     """
     split = load_split(dataset_dir, artifact, partition=partition)
     unit = unit_dir(output_root, METHOD_NAME, split)
+    prepare_run(
+        unit,
+        split,
+        method=METHOD_NAME,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+    )
     checkpoint = checkpoint_path(unit, split.name)
     if resume and checkpoint.is_file():
         return
     payload = train_dataset(split, device=device, seed=seed, hp=hp)
     checkpoint.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(payload, checkpoint)
+    atomic_write_file(checkpoint, lambda handle: torch.save(payload, handle))

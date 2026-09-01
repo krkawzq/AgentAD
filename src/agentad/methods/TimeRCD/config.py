@@ -20,6 +20,7 @@ class TimeRCDConfig:
     reconstruction_weight: float = 1.0
     classification_weight: float = 1.0
     inference_window: int = 5_000
+    max_attention_tokens: int | None = None
     epsilon: float = 1e-5
     batch_size: int = 3
     learning_rate: float = 1e-4
@@ -46,6 +47,8 @@ class TimeRCDConfig:
                 raise ValueError(f"{name} must be positive")
         if self.model_dim % self.heads:
             raise ValueError("model_dim must be divisible by heads")
+        if self.max_attention_tokens is not None and self.max_attention_tokens <= 0:
+            raise ValueError("max_attention_tokens must be positive when provided")
         if self.projection_dim < 2:
             raise ValueError("projection_dim must be at least two")
         if self.model_dim % 2:

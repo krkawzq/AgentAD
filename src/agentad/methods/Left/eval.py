@@ -23,6 +23,7 @@ from ...benchmark import (
     checkpoints_dir,
     has_score,
     load_split,
+    prepare_run,
     save_score,
     unit_dir,
     write_metrics,
@@ -56,11 +57,12 @@ def _load_or_train(
     device: str,
     seed: int,
     hp: Mapping[str, Any] | None,
+    resume: bool,
 ) -> LeftLightningModule:
     """Return the artifact-level LEFT, training it once when no checkpoint exists."""
     unit = unit_dir(output_root, METHOD_NAME, split)
     checkpoint = checkpoints_dir(unit) / f"{split.name}.pt"
-    if checkpoint.is_file():
+    if resume and checkpoint.is_file():
         return _load_checkpoint(checkpoint, device)
     config = build_config(split.test.n_features, hp)
     module = train_split(split, config, device=device, seed=seed)
@@ -130,13 +132,31 @@ def evaluate(
     split = load_split(dataset_dir, artifact, partition=partition)
     unit = unit_dir(output_root, METHOD_NAME, split)
     results = unit_dir(results_root, METHOD_NAME, split)
+    prepare_run(
+        unit,
+        split,
+        method=METHOD_NAME,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+    )
     pending = [
         series_id
         for series_id in split.test.ids
         if not (resume and has_score(unit, series_id))
     ]
     if pending:
-        module = _load_or_train(split, output_root, device=device, seed=seed, hp=hp)
+        module = _load_or_train(
+            split,
+            output_root,
+            device=device,
+            seed=seed,
+            hp=hp,
+            resume=resume,
+        )
         window = module.config.sequence_length
         target = torch.device(device)
         for series_id in pending:

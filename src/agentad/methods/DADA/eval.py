@@ -20,8 +20,10 @@ import torch
 from sklearn.preprocessing import StandardScaler
 
 from ...benchmark import (
+    artifact_state,
     has_score,
     load_split,
+    prepare_run,
     save_score,
     unit_dir,
     write_metrics,
@@ -123,6 +125,18 @@ def evaluate(
     name = f"{METHOD_NAME}/{variant}" if variant else METHOD_NAME
     unit = unit_dir(output_root, name, split)
     results = unit_dir(results_root, name, split)
+    prepare_run(
+        unit,
+        split,
+        method=name,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+        extra={"variant": variant, "checkpoint": artifact_state(CHECKPOINT_PATH)},
+    )
     config = replace(DADAConfig.original_pretrained(), **{**DEFAULT_HP, **(hp or {})})
     target = torch.device(device)
     model = DADA.from_official_checkpoint(CHECKPOINT_PATH).to(target)

@@ -14,6 +14,7 @@ from ...benchmark import (
     checkpoints_dir,
     has_score,
     load_split,
+    prepare_run,
     save_score,
     unit_dir,
     write_metrics,
@@ -82,6 +83,17 @@ def evaluate(
         raise FileNotFoundError(f"AERCA needs a normal train prefix: {split.unit_name}")
     unit = unit_dir(output_root, METHOD_NAME, split)
     results = unit_dir(results_root, METHOD_NAME, split)
+    prepare_run(
+        unit,
+        split,
+        method=METHOD_NAME,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+    )
     pending = [
         series_id
         for series_id in split.test.ids

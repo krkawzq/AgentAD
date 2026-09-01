@@ -111,25 +111,24 @@ def main() -> None:
             dataset_dir=args.dataset_dir,
             output_root=args.output_root,
             artifact=args.artifact,
-            partition=None if args.partition.lower() == 'none' else args.partition,
+            partition=None if args.partition.lower() == "none" else args.partition,
             device=args.device,
             seed=args.seed,
             hp=_parse_hp(args.hp) or None,
+            variant="finetune",
             resume=not args.no_resume,
         )
         print(
             f"checkpoints written under "
-            f"{args.output_root}/TSPulse-FT/<source>/<artifact>/checkpoints/"
+            f"{args.output_root}/TSPulse-FT/finetune/<source>/<artifact>/checkpoints/"
         )
         handle.write(
-            f"===== done "
-            f"{datetime.now().isoformat(timespec='seconds')} =====\n"
+            f"===== done {datetime.now().isoformat(timespec='seconds')} =====\n"
         )
     except BaseException:
         handle.write(traceback.format_exc())
         handle.write(
-            f"===== failed "
-            f"{datetime.now().isoformat(timespec='seconds')} =====\n"
+            f"===== failed {datetime.now().isoformat(timespec='seconds')} =====\n"
         )
         handle.flush()
         raise

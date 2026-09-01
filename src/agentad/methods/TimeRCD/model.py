@@ -17,6 +17,15 @@ from .._utils import evaluation_mode, validate_series
 from .config import TimeRCDConfig
 
 
+def _bounded_inference_window(config: TimeRCDConfig, time: int, features: int) -> int:
+    """Resolve a non-overlapping window within the dense attention token cap."""
+    window = min(time, config.inference_window)
+    if features > 1 and config.max_attention_tokens is not None:
+        max_patches = max(1, config.max_attention_tokens // features)
+        window = min(window, max_patches * config.patch_length)
+    return window
+
+
 class _RMSNorm(nn.Module):
     def __init__(self, width: int, epsilon: float) -> None:
         super().__init__()
@@ -356,14 +365,10 @@ class TimeRCD(nn.Module):
             scale = torch.where(scale == 0, scale.new_full((), 1e-8), scale)
             normalized = (series - mean) / scale
             batch, time, features = normalized.shape
-            window = min(time, self.config.inference_window)
-            # Multivariate attention is over (channels × patches) and cannot
-            # use flash attention because of the feature-pair bias, so a 15_000
-            # window on high-C series (OPPORTUNITY / SWaT) tries to allocate
-            # terabytes. Cap tokens; univariate and low-C series keep the HP.
-            if features > 1:
-                max_patches = max(1, 4096 // features)
-                window = min(window, max_patches * self.config.patch_length)
+            # Multivariate attention is quadratic in channels × patches and
+            # carries a dense feature-pair bias. Bound that token axis while
+            # preserving the requested window whenever it already fits.
+            window = _bounded_inference_window(self.config, time, features)
             padded_length = math.ceil(time / window) * window
             if padded_length != time:
                 normalized = F.pad(

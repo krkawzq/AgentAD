@@ -68,9 +68,7 @@ class MMPADConfig:
         )
 
     @classmethod
-    def original_configs(
-        cls, *, subsequence_length: int | None
-    ) -> dict[str, Self]:
+    def original_configs(cls, *, subsequence_length: int | None) -> dict[str, Self]:
         return {
             "default": cls.original_default(subsequence_length=subsequence_length),
             "univariate_hp0": cls.original_univariate_hp0(

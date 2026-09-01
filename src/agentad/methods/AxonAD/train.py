@@ -13,7 +13,13 @@ import torch
 from torch import Tensor
 from torch.utils.data import DataLoader, TensorDataset
 
-from ...benchmark import checkpoints_dir, load_split, unit_dir
+from ...benchmark import (
+    atomic_write_file,
+    checkpoints_dir,
+    load_split,
+    prepare_run,
+    unit_dir,
+)
 from .._utils import sliding_windows
 from .config import AxonADConfig
 from .model import AxonAD, AxonADLightningModule
@@ -158,6 +164,17 @@ def train(
             f"no train archive for {split.unit_name}; AxonAD is semi-supervised"
         )
     unit = unit_dir(output_root, METHOD_NAME, split)
+    prepare_run(
+        unit,
+        split,
+        method=METHOD_NAME,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+    )
     checkpoints = checkpoints_dir(unit)
     config = build_config(split.test.n_features, hp)
     for series_id in split.test.ids:
@@ -170,7 +187,8 @@ def train(
         train_item = split.train[series_id]
         module = train_series(train_item.data, config, device=device)
         checkpoints.mkdir(parents=True, exist_ok=True)
-        torch.save(
-            {"config": asdict(config), "state_dict": module.state_dict()},
+        payload = {"config": asdict(config), "state_dict": module.state_dict()}
+        atomic_write_file(
             checkpoint,
+            lambda handle: torch.save(payload, handle),
         )

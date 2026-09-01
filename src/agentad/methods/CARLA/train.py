@@ -22,7 +22,13 @@ import torch
 from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 
-from ...benchmark import checkpoints_dir, load_split, unit_dir
+from ...benchmark import (
+    atomic_write_file,
+    checkpoints_dir,
+    load_split,
+    prepare_run,
+    unit_dir,
+)
 
 from .._utils import sliding_windows
 from .config import CARLAConfig
@@ -341,24 +347,27 @@ def _save_checkpoint(
     """Store the pretext weights, mined neighbors and calibrated model."""
     directory.mkdir(parents=True, exist_ok=True)
     config_payload = asdict(config)
-    torch.save(
-        {
-            "config": config_payload,
-            "state_dict": artifacts.pretext_state_dict,
-        },
+    pretext_payload = {
+        "config": config_payload,
+        "state_dict": artifacts.pretext_state_dict,
+    }
+    atomic_write_file(
         directory / "pretext.pt",
+        lambda handle: torch.save(pretext_payload, handle),
     )
-    torch.save(
-        {"nearest": artifacts.nearest, "furthest": artifacts.furthest},
+    neighbor_payload = {"nearest": artifacts.nearest, "furthest": artifacts.furthest}
+    atomic_write_file(
         directory / "neighbors.pt",
+        lambda handle: torch.save(neighbor_payload, handle),
     )
-    torch.save(
-        {
-            "config": config_payload,
-            "state_dict": _cpu_state(model.state_dict()),
-            "normal_clusters": model.normal_clusters.detach().cpu(),
-        },
+    classification_payload = {
+        "config": config_payload,
+        "state_dict": _cpu_state(model.state_dict()),
+        "normal_clusters": model.normal_clusters.detach().cpu(),
+    }
+    atomic_write_file(
         directory / "classification.pt",
+        lambda handle: torch.save(classification_payload, handle),
     )
 
 
@@ -385,6 +394,17 @@ def train(
             f"CARLA is semisupervised; {split.unit_name} has no train split"
         )
     unit = unit_dir(output_root, METHOD_NAME, split)
+    prepare_run(
+        unit,
+        split,
+        method=METHOD_NAME,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+    )
     for series_id in split.test.ids:
         checkpoint = checkpoints_dir(unit) / series_id
         if resume and (checkpoint / "classification.pt").is_file():

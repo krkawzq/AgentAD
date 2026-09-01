@@ -25,6 +25,7 @@ from torch import Tensor
 from ...benchmark import (
     has_score,
     load_split,
+    prepare_run,
     save_score,
     unit_dir,
     write_metrics,
@@ -62,18 +63,24 @@ def _kmeans_centers(
     rows: Tensor, *, clusters: int, iterations: int, seed: int
 ) -> Tensor:
     """Lloyd iterations from k-means++ seeds; ties keep the earlier center."""
-    generator = torch.Generator(device="cpu").manual_seed(seed)
+    generator = torch.Generator(device=rows.device).manual_seed(seed)
     count, width = rows.shape
     k = min(clusters, count)
     centers = torch.empty((k, width), dtype=rows.dtype, device=rows.device)
-    first = int(torch.randint(count, (1,), generator=generator).item())
+    first = int(
+        torch.randint(count, (1,), generator=generator, device=rows.device).item()
+    )
     centers[0] = rows[first]
     closest = (rows - centers[0]).square().sum(dim=1)
     for index in range(1, k):
         total = closest.sum()
         if not total > 0:
             centers[index] = rows[
-                int(torch.randint(count, (1,), generator=generator).item())
+                int(
+                    torch.randint(
+                        count, (1,), generator=generator, device=rows.device
+                    ).item()
+                )
             ]
         else:
             pick = int(torch.multinomial(closest, 1, generator=generator).item())
@@ -170,6 +177,17 @@ def evaluate(
     split = load_split(dataset_dir, artifact, partition=partition)
     unit = unit_dir(output_root, "baseline/KMeansDistance", split)
     results = unit_dir(results_root, "baseline/KMeansDistance", split)
+    prepare_run(
+        unit,
+        split,
+        method="baseline/KMeansDistance",
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device="cpu",
+    )
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
             continue

@@ -22,9 +22,11 @@ import pandas as pd
 import torch
 
 from ...benchmark import (
+    artifact_state,
     checkpoints_dir,
     has_score,
     load_split,
+    prepare_run,
     save_score,
     unit_dir,
     write_metrics,
@@ -131,6 +133,22 @@ def evaluate_zero_shot(
     name = f"{ZERO_SHOT_NAME}/{variant}" if variant else ZERO_SHOT_NAME
     unit = unit_dir(output_root, name, split)
     results = unit_dir(results_root, name, split)
+    prepare_run(
+        unit,
+        split,
+        method=name,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+        extra={
+            "mode": "zeroshot",
+            "variant": variant,
+            "pretrained": artifact_state(PRETRAINED_PATH),
+        },
+    )
     config, batch_size = _resolve_zero_shot_config(split.test.n_features, hp)
     L.seed_everything(seed)
     model = TSPulseZeroShot.from_pretrained(
@@ -178,6 +196,22 @@ def evaluate_finetune(
     name = f"{METHOD_NAME}/{variant}" if variant else METHOD_NAME
     unit = unit_dir(output_root, name, split)
     results = unit_dir(results_root, name, split)
+    prepare_run(
+        unit,
+        split,
+        method=name,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+        extra={
+            "mode": "finetune",
+            "variant": variant,
+            "pretrained": artifact_state(PRETRAINED_PATH),
+        },
+    )
     config = _resolve_finetune_config(split.test.n_features, hp)
     zero_shot: TSPulseZeroShot | None = None
     for series_id in split.test.ids:
@@ -201,7 +235,7 @@ def evaluate_finetune(
             )
             continue
         model: TSPulseFineTune | TSPulseZeroShot | None
-        model = _load_finetuned(unit, series_id, device)
+        model = _load_finetuned(unit, series_id, device) if resume else None
         if model is None and train_item is not None:
             model = train_series(train_item.data, device=device, seed=seed, hp=hp)
         if model is None:
@@ -213,6 +247,7 @@ def evaluate_finetune(
                     config, model_name_or_path=PRETRAINED_PATH
                 ).to(device)
             model = zero_shot
+        model = model.to(device)
         save_score(
             unit,
             series_id,

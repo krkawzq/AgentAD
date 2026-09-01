@@ -15,6 +15,7 @@ from ...benchmark import (
     checkpoints_dir,
     has_score,
     load_split,
+    prepare_run,
     save_score,
     unit_dir,
     write_metrics,
@@ -38,8 +39,9 @@ def _load_or_train(
     config: KANADConfig,
     checkpoint: Path,
     device: str,
+    resume: bool,
 ) -> KANADLightningModule:
-    if checkpoint.is_file():
+    if resume and checkpoint.is_file():
         return _load_module(checkpoint)
     # With no checkpoint on disk, train the single series in place; the
     # model is passed in memory only and never written out.
@@ -74,7 +76,7 @@ def _check_scores(scores: np.ndarray, length: int, series_id: str) -> None:
 
 def evaluate(
     dataset_dir: str | Path,
-    output_root: str | Path = f"benchmarks/{METHOD_NAME}",
+    output_root: str | Path = "outputs/benchmark",
     *,
     artifact: str | None = None,
     results_root: str | Path = "results/benchmark",
@@ -93,6 +95,17 @@ def evaluate(
         )
     unit = unit_dir(output_root, METHOD_NAME, split)
     results = unit_dir(results_root, METHOD_NAME, split)
+    prepare_run(
+        unit,
+        split,
+        method=METHOD_NAME,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+    )
     config = _resolve_config(hp)
     ckpt_dir = checkpoints_dir(unit)
     for series_id in split.test.ids:
@@ -109,6 +122,7 @@ def evaluate(
             config=config,
             checkpoint=ckpt_dir / f"{series_id}.pt",
             device=device,
+            resume=resume,
         )
         module.to(torch.device(device))
         scores = _score_full_length(module, z_full, device=device)

@@ -21,7 +21,14 @@ from numpy.typing import ArrayLike
 from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 
-from ...benchmark import DatasetSplit, checkpoints_dir, load_split, unit_dir
+from ...benchmark import (
+    DatasetSplit,
+    atomic_write_file,
+    checkpoints_dir,
+    load_split,
+    prepare_run,
+    unit_dir,
+)
 
 from .._utils import sliding_windows
 from .config import PaAnoConfig
@@ -181,16 +188,17 @@ def _save_checkpoint(
 ) -> None:
     """Persist the config, encoder weights, and non-persistent memory bank."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(
-        {
-            "config": asdict(config),
-            "state_dict": {
-                key: value.detach().cpu()
-                for key, value in module.model.state_dict().items()
-            },
-            "normal_memory": module.model.normal_memory.detach().cpu(),
+    payload = {
+        "config": asdict(config),
+        "state_dict": {
+            key: value.detach().cpu()
+            for key, value in module.model.state_dict().items()
         },
+        "normal_memory": module.model.normal_memory.detach().cpu(),
+    }
+    atomic_write_file(
         path,
+        lambda handle: torch.save(payload, handle),
     )
 
 
@@ -219,6 +227,17 @@ def train(
     """
     split = load_split(dataset_dir, artifact, partition=partition)
     unit = unit_dir(output_root, METHOD_NAME, split)
+    prepare_run(
+        unit,
+        split,
+        method=METHOD_NAME,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+    )
     for series_id in split.test.ids:
         ckpt_path = checkpoints_dir(unit) / f"{series_id}.pt"
         if resume and ckpt_path.is_file():

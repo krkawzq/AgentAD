@@ -22,6 +22,7 @@ from .train import METHOD_NAME, checkpoint_path, train_dataset
 from ...benchmark import (
     has_score,
     load_split,
+    prepare_run,
     save_score,
     unit_dir,
     write_metrics,
@@ -73,8 +74,19 @@ def evaluate(
         raise ValueError("ScatterAD is semisupervised and requires a train split")
     unit = unit_dir(output_root, METHOD_NAME, split)
     results = unit_dir(results_root, METHOD_NAME, split)
+    prepare_run(
+        unit,
+        split,
+        method=METHOD_NAME,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+    )
     checkpoint = checkpoint_path(unit, split.name)
-    if checkpoint.is_file():
+    if resume and checkpoint.is_file():
         payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
     else:
         payload = train_dataset(split, device=device, seed=seed, hp=hp)

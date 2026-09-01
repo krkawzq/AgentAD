@@ -20,7 +20,14 @@ import torch
 from torch import Tensor
 from torch.utils.data import DataLoader, Dataset, random_split
 
-from ...benchmark import checkpoints_dir, load_split, unit_dir
+from ...benchmark import (
+    artifact_state,
+    atomic_write_file,
+    checkpoints_dir,
+    load_split,
+    prepare_run,
+    unit_dir,
+)
 
 from .config import TSPulseConfig
 from .model import TSPulseFineTune, TSPulseLightningModule
@@ -198,11 +205,29 @@ def train(
     device: str = "cuda",
     seed: int = 2024,
     hp: Mapping[str, Any] | None = None,
+    variant: str | None = None,
     resume: bool = True,
 ) -> None:
     """Fine-tune every series of one artifact pair and store per-series checkpoints."""
     split = load_split(dataset_dir, artifact, partition=partition)
-    unit = unit_dir(output_root, METHOD_NAME, split)
+    name = f"{METHOD_NAME}/{variant}" if variant else METHOD_NAME
+    unit = unit_dir(output_root, name, split)
+    prepare_run(
+        unit,
+        split,
+        method=name,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+        extra={
+            "mode": "finetune",
+            "variant": variant,
+            "pretrained": artifact_state(PRETRAINED_PATH),
+        },
+    )
     input_features = split.test.n_features
     config = _resolve_config(input_features, hp)
     for series_id in split.test.ids:
@@ -216,4 +241,5 @@ def train(
         if model is None:
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save({"config": asdict(config), "state_dict": model.state_dict()}, path)
+        payload = {"config": asdict(config), "state_dict": model.state_dict()}
+        atomic_write_file(path, lambda handle: torch.save(payload, handle))

@@ -15,6 +15,7 @@ from ...benchmark import (
     checkpoints_dir,
     has_score,
     load_split,
+    prepare_run,
     save_score,
     unit_dir,
     write_metrics,
@@ -37,10 +38,11 @@ def _load_or_train(
     config: AxonADConfig,
     *,
     device: str,
+    resume: bool,
 ) -> AxonADLightningModule:
     """Load a stored checkpoint, or train in memory when it is missing."""
     checkpoint = checkpoints_dir(unit) / f"{series_id}.pt"
-    if not checkpoint.is_file():
+    if not (resume and checkpoint.is_file()):
         return train_series(train_data, config, device=device)
     payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
     stored_config = AxonADConfig(**payload["config"])
@@ -89,6 +91,17 @@ def evaluate(
         )
     unit = unit_dir(output_root, METHOD_NAME, split)
     results = unit_dir(results_root, METHOD_NAME, split)
+    prepare_run(
+        unit,
+        split,
+        method=METHOD_NAME,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+    )
     config = build_config(split.test.n_features, hp)
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
@@ -104,7 +117,14 @@ def evaluate(
                 f"series {series_id!r}: full length {len(full)} is shorter than "
                 f"the window {config.window_length}"
             )
-        module = _load_or_train(unit, series_id, train_item.data, config, device=device)
+        module = _load_or_train(
+            unit,
+            series_id,
+            train_item.data,
+            config,
+            device=device,
+            resume=resume,
+        )
         scores = (
             module.model.score(
                 _segment_tensor(full).to(module.device),

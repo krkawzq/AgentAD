@@ -18,8 +18,10 @@ import torch
 
 from ...benchmark import (
     DatasetSplit,
+    artifact_state,
     has_score,
     load_split,
+    prepare_run,
     save_score,
     unit_dir,
     write_metrics,
@@ -44,7 +46,11 @@ _MULTI_CHECKPOINT = (
 )
 
 # TSB-AD Optimal row "Time_RCD" in the original HP_list.py.
-DEFAULT_HP: Mapping[str, Any] = {"win_size": 15_000, "batch_size": 64}
+DEFAULT_HP: Mapping[str, Any] = {
+    "win_size": 15_000,
+    "batch_size": 64,
+    "max_attention_tokens": 4096,
+}
 
 
 def _checkpoint_path(channels: int) -> Path:
@@ -80,6 +86,11 @@ def _load_model(
     model.config = replace(
         model.config,
         inference_window=int(settings["win_size"]),
+        max_attention_tokens=(
+            None
+            if settings["max_attention_tokens"] is None
+            else int(settings["max_attention_tokens"])
+        ),
         batch_size=batch_size,
     )
     return model.to(device=device)
@@ -125,9 +136,27 @@ def evaluate(
     name = f"{METHOD_NAME}/{variant}" if variant else METHOD_NAME
     unit = unit_dir(output_root, name, split)
     results = unit_dir(results_root, name, split)
+    channels = _series_channels(split)
+    prepare_run(
+        unit,
+        split,
+        method=name,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+        extra={
+            "variant": variant,
+            "window_policy": "attention-token-cap",
+            "resolved_hp": settings,
+            "checkpoint": artifact_state(_checkpoint_path(channels)),
+        },
+    )
     target = torch.device(device)
     L.seed_everything(seed)
-    model = _load_model(_series_channels(split), settings, target)
+    model = _load_model(channels, settings, target)
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
             continue

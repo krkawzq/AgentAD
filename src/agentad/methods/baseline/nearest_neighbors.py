@@ -22,6 +22,7 @@ from torch import Tensor
 from ...benchmark import (
     has_score,
     load_split,
+    prepare_run,
     save_score,
     unit_dir,
     write_metrics,
@@ -104,6 +105,17 @@ def evaluate(
     split = load_split(dataset_dir, artifact, partition=partition)
     unit = unit_dir(output_root, "baseline/NearestNeighbors", split)
     results = unit_dir(results_root, "baseline/NearestNeighbors", split)
+    prepare_run(
+        unit,
+        split,
+        method="baseline/NearestNeighbors",
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+    )
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
             continue

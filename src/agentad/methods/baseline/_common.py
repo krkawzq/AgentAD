@@ -19,8 +19,12 @@ def zscore(values: Tensor, dim: int, ddof: int = 0) -> Tensor:
     """Standardize along ``dim``; constant slices map to zero."""
     mean = values.mean(dim, keepdim=True)
     std = values.std(dim, keepdim=True, correction=ddof)
-    limit = torch.finfo(values.dtype).max
-    return torch.nan_to_num((values - mean) / std, nan=0.0, posinf=limit, neginf=-limit)
+    magnitude = values.abs().amax(dim, keepdim=True).clamp_min(1.0)
+    minimum_scale = torch.finfo(values.dtype).eps * magnitude
+    usable = torch.isfinite(std) & (std > minimum_scale)
+    safe_std = torch.where(usable, std, torch.ones_like(std))
+    normalized = (values - mean) / safe_std
+    return torch.where(usable, normalized, torch.zeros_like(normalized)).nan_to_num()
 
 
 def expected_search_depth(size: int) -> float:

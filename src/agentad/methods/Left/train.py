@@ -22,9 +22,11 @@ from torch import Tensor
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
 
 from ...benchmark import (
+    atomic_write_file,
     DatasetSplit,
     checkpoints_dir,
     load_split,
+    prepare_run,
     unit_dir,
 )
 
@@ -149,7 +151,8 @@ def save_checkpoint(
     state = {key: value.cpu() for key, value in module.state_dict().items()}
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save({"config": asdict(config), "state_dict": state}, path)
+    payload = {"config": asdict(config), "state_dict": state}
+    atomic_write_file(path, lambda handle: torch.save(payload, handle))
 
 
 def train(
@@ -169,6 +172,17 @@ def train(
     """
     split = load_split(dataset_dir, artifact, partition=partition)
     unit = unit_dir(output_root, METHOD_NAME, split)
+    prepare_run(
+        unit,
+        split,
+        method=METHOD_NAME,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+    )
     checkpoint = checkpoints_dir(unit) / f"{split.name}.pt"
     if resume and checkpoint.is_file():
         return

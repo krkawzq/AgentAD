@@ -22,6 +22,7 @@ from ...benchmark import (
     checkpoints_dir,
     has_score,
     load_split,
+    prepare_run,
     save_score,
     unit_dir,
     write_metrics,
@@ -86,6 +87,17 @@ def evaluate(
         )
     unit = unit_dir(output_root, METHOD_NAME, split)
     results = unit_dir(results_root, METHOD_NAME, split)
+    prepare_run(
+        unit,
+        split,
+        method=METHOD_NAME,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+    )
     target = torch.device(device)
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
@@ -96,10 +108,10 @@ def evaluate(
         full = np.concatenate([train_data, test_data], axis=0)
         mean, std = fit_normalization(train_data)
         checkpoint = checkpoints_dir(unit) / series_id
-        if (checkpoint / "classification.pt").is_file():
+        if resume and (checkpoint / "classification.pt").is_file():
             model = _load_checkpoint(checkpoint, target)
             config = model.config
-        elif checkpoint.is_dir():
+        elif resume and checkpoint.is_dir():
             # An interrupted train leaves the directory without its final
             # stage; fail loudly instead of silently retraining over it.
             raise FileNotFoundError(

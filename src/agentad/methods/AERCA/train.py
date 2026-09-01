@@ -12,7 +12,13 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from ...benchmark import checkpoints_dir, load_split, unit_dir
+from ...benchmark import (
+    atomic_write_file,
+    checkpoints_dir,
+    load_split,
+    prepare_run,
+    unit_dir,
+)
 
 from .config import AERCAConfig
 from .model import AERCA, AERCALightningModule
@@ -165,9 +171,19 @@ def train(
     split = load_split(dataset_dir, artifact, partition=partition)
     if split.train is None:
         raise FileNotFoundError(f"AERCA needs a normal train prefix: {split.unit_name}")
-    checkpoint = (
-        checkpoints_dir(unit_dir(output_root, METHOD_NAME, split)) / f"{split.name}.pt"
+    unit = unit_dir(output_root, METHOD_NAME, split)
+    prepare_run(
+        unit,
+        split,
+        method=METHOD_NAME,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
     )
+    checkpoint = checkpoints_dir(unit) / f"{split.name}.pt"
     if resume and checkpoint.is_file():
         return
     trained = train_dataset(
@@ -177,12 +193,13 @@ def train(
         hp=hp,
     )
     checkpoint.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(
-        {
-            "config": asdict(trained.config),
-            "state_dict": trained.model.state_dict(),
-            "mean": torch.from_numpy(trained.mean),
-            "std": torch.from_numpy(trained.std),
-        },
+    payload = {
+        "config": asdict(trained.config),
+        "state_dict": trained.model.state_dict(),
+        "mean": torch.from_numpy(trained.mean),
+        "std": torch.from_numpy(trained.std),
+    }
+    atomic_write_file(
         checkpoint,
+        lambda handle: torch.save(payload, handle),
     )

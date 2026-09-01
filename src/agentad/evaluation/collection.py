@@ -418,6 +418,8 @@ def evaluate_collection(
     ``raise`` preserves the original exception, while ``nan`` and ``zero``
     retain an error column for auditability. ``save_scores_to`` writes only
     successfully evaluated, full-length scores as a new series collection.
+    ``score_seconds`` times callback execution only; precomputed mappings leave
+    it undefined and report their validation overhead as ``score_load_seconds``.
     """
     if (score_fn is None) == (scores is None):
         raise ValueError("pass exactly one of score_fn and scores")
@@ -504,7 +506,13 @@ def evaluate_collection(
             started = time.perf_counter()
             score = _resolve_score(score_fn, scores, series)
             prediction = _resolve_prediction(predictions, series)
-            row["score_seconds"] = time.perf_counter() - started
+            score_elapsed = time.perf_counter() - started
+            if score_fn is None:
+                row["score_seconds"] = math.nan
+                row["score_load_seconds"] = score_elapsed
+            else:
+                row["score_seconds"] = score_elapsed
+                row["score_load_seconds"] = math.nan
             if need_period:
                 from .period import find_period
 
@@ -560,6 +568,7 @@ def evaluate_collection(
             fill = 0.0 if on_error == "zero" else math.nan
             row.update({name: fill for name in internal_selected})
             row.setdefault("score_seconds", math.nan)
+            row.setdefault("score_load_seconds", math.nan)
             row.setdefault("metric_seconds", math.nan)
             row["sliding_window"] = math.nan
         rows.append(row)

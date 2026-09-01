@@ -20,7 +20,14 @@ import torch
 from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 
-from ...benchmark import DatasetSplit, checkpoints_dir, load_split, unit_dir
+from ...benchmark import (
+    DatasetSplit,
+    atomic_write_file,
+    checkpoints_dir,
+    load_split,
+    prepare_run,
+    unit_dir,
+)
 
 from .config import CrossADConfig
 from .model import CrossADLightningModule
@@ -198,7 +205,19 @@ def train(
     ``checkpoints/<series_id>.pt``; with ``resume`` set, existing checkpoints
     are kept."""
     split = load_split(dataset_dir, artifact, partition=partition)
-    ckpt_dir = checkpoints_dir(unit_dir(output_root, METHOD_NAME, split))
+    unit = unit_dir(output_root, METHOD_NAME, split)
+    prepare_run(
+        unit,
+        split,
+        method=METHOD_NAME,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+    )
+    ckpt_dir = checkpoints_dir(unit)
     for series_id in split.test.ids:
         ckpt_path = ckpt_dir / f"{series_id}.pt"
         if resume and ckpt_path.is_file():
@@ -208,6 +227,8 @@ def train(
             _train_data(split, series_id), config, device=device, seed=seed
         )
         ckpt_dir.mkdir(parents=True, exist_ok=True)
-        torch.save(
-            {"config": asdict(config), "state_dict": module.state_dict()}, ckpt_path
+        payload = {"config": asdict(config), "state_dict": module.state_dict()}
+        atomic_write_file(
+            ckpt_path,
+            lambda handle: torch.save(payload, handle),
         )

@@ -15,6 +15,7 @@ from ...benchmark import (
     checkpoints_dir,
     has_score,
     load_split,
+    prepare_run,
     save_score,
     unit_dir,
     write_metrics,
@@ -87,6 +88,17 @@ def evaluate(
         raise ValueError(f"xLSTMAD needs a train archive: {split.unit_name}")
     unit = unit_dir(output_root, METHOD_NAME, split)
     results = unit_dir(results_root, METHOD_NAME, split)
+    prepare_run(
+        unit,
+        split,
+        method=METHOD_NAME,
+        partition=partition,
+        seed=seed,
+        hp=hp,
+        resume=resume,
+        implementation_file=__file__,
+        device=device,
+    )
     for series_id in split.test.ids:
         if resume and has_score(unit, series_id):
             continue
@@ -96,7 +108,7 @@ def evaluate(
         full = np.concatenate([train_item.data, test_item.data])
         config = build_config(full.shape[1], device=device, hp=hp)
         ckpt_path = checkpoints_dir(unit) / f"{series_id}.pt"
-        if ckpt_path.is_file():
+        if resume and ckpt_path.is_file():
             module = load_series_checkpoint(ckpt_path, device=device)
         else:
             module = train_series(train_item.data, config, device=device)

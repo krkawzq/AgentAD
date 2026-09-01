@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -79,11 +80,13 @@ from agentad.methods import (  # noqa: E402
 )
 from agentad.methods.MMPAD.algorithm import _resolved_length  # noqa: E402
 from agentad.methods.TimeRCD import load_official_checkpoint  # noqa: E402
+from agentad.methods.TimeRCD.model import _bounded_inference_window  # noqa: E402
 from agentad.methods._utils import (  # noqa: E402
     evaluation_mode,
     overlap_average,
     topk_cosine_distance,
 )
+from agentad.methods.baseline._common import zscore  # noqa: E402
 
 
 def assert_finite_shape(tensor, shape):
@@ -167,6 +170,23 @@ def test_evaluation_mode_restores_mixed_submodule_states():
     assert module.training
     assert not module[0].training
     assert module[1].training
+
+
+def test_time_rcd_multivariate_window_respects_attention_token_cap():
+    config = replace(
+        TimeRCDConfig.original_pretrained_multivariate(input_features=256),
+        inference_window=15_000,
+        max_attention_tokens=4096,
+    )
+    assert _bounded_inference_window(config, 100_000, 256) == 256
+    assert _bounded_inference_window(config, 100_000, 2) == 15_000
+    assert _bounded_inference_window(config, 1_000, 1) == 1_000
+
+
+def test_baseline_zscore_maps_numerically_constant_slices_to_zero():
+    values = torch.tensor([[1e-38, 2e-38, 3e-38]], dtype=torch.float32)
+    normalized = zscore(values, dim=1, ddof=1)
+    assert torch.equal(normalized, torch.zeros_like(normalized))
 
 
 def test_chunked_topk_cosine_matches_dense_reference():
