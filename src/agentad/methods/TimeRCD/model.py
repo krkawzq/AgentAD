@@ -357,6 +357,13 @@ class TimeRCD(nn.Module):
             normalized = (series - mean) / scale
             batch, time, features = normalized.shape
             window = min(time, self.config.inference_window)
+            # Multivariate attention is over (channels × patches) and cannot
+            # use flash attention because of the feature-pair bias, so a 15_000
+            # window on high-C series (OPPORTUNITY / SWaT) tries to allocate
+            # terabytes. Cap tokens; univariate and low-C series keep the HP.
+            if features > 1:
+                max_patches = max(1, 4096 // features)
+                window = min(window, max_patches * self.config.patch_length)
             padded_length = math.ceil(time / window) * window
             if padded_length != time:
                 normalized = F.pad(
