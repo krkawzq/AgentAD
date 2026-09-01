@@ -111,6 +111,7 @@ def evaluate(
     device: str = "cuda",
     seed: int = 2024,
     hp: Mapping[str, Any] | None = None,
+    variant: str | None = None,
     resume: bool = True,
 ) -> pd.DataFrame:
     """Score every series of one artifact with the official Time-RCD checkpoint.
@@ -121,8 +122,9 @@ def evaluate(
     """
     settings: Mapping[str, Any] = {**DEFAULT_HP, **(hp or {})}
     split = load_split(dataset_dir, artifact, partition=partition)
-    unit = unit_dir(output_root, METHOD_NAME, split)
-    results = unit_dir(results_root, METHOD_NAME, split)
+    name = f"{METHOD_NAME}/{variant}" if variant else METHOD_NAME
+    unit = unit_dir(output_root, name, split)
+    results = unit_dir(results_root, name, split)
     target = torch.device(device)
     L.seed_everything(seed)
     model = _load_model(_series_channels(split), settings, target)

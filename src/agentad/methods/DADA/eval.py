@@ -111,6 +111,7 @@ def evaluate(
     device: str = "cuda",
     seed: int = 2024,
     hp: Mapping[str, Any] | None = None,
+    variant: str | None = None,
     resume: bool = True,
 ) -> pd.DataFrame:
     """Score one dataset unit with the released DADA weights (no training).
@@ -119,8 +120,9 @@ def evaluate(
     metric frame written to ``<unit>/metrics.csv``.
     """
     split = load_split(dataset_dir, artifact, partition=partition)
-    unit = unit_dir(output_root, METHOD_NAME, split)
-    results = unit_dir(results_root, METHOD_NAME, split)
+    name = f"{METHOD_NAME}/{variant}" if variant else METHOD_NAME
+    unit = unit_dir(output_root, name, split)
+    results = unit_dir(results_root, name, split)
     config = replace(DADAConfig.original_pretrained(), **{**DEFAULT_HP, **(hp or {})})
     target = torch.device(device)
     model = DADA.from_official_checkpoint(CHECKPOINT_PATH).to(target)

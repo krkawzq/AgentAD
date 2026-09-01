@@ -129,6 +129,7 @@ def main() -> None:
             device=args.device,
             seed=args.seed,
             hp=_parse_hp(args.hp) or None,
+            variant="zeroshot" if args.mode == "zs" else "finetune",
             resume=not args.no_resume,
         )
         print(frame.to_string(index=False))

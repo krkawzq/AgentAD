@@ -122,6 +122,7 @@ def main() -> None:
             partition=None if args.partition.lower() == 'none' else args.partition,
             seed=args.seed,
             hp=_parse_hp(args.hp) or None,
+            variant="zeroshot",
             resume=not args.no_resume,
         )
         print(frame.to_string(index=False))
