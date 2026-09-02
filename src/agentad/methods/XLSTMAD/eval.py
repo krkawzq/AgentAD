@@ -50,6 +50,7 @@ def _score_full(
     with its own statistics, independent of the training normalization.
     Scores keep the migrated zero padding on the first ``window - 1`` points.
     """
+    module = module.to(device)
     series = torch.from_numpy(np.ascontiguousarray(_zscore(full), dtype=np.float32))
     scores = module.model.score(series.unsqueeze(0).to(device))[0]
     return scores.detach().cpu().numpy().astype(np.float64)

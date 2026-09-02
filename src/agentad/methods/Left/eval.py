@@ -156,7 +156,7 @@ def evaluate(
             seed=seed,
             hp=hp,
             resume=resume,
-        )
+        ).to(device)
         window = module.config.sequence_length
         target = torch.device(device)
         for series_id in pending:

@@ -1,5 +1,7 @@
 # TSB-AD 部分评测结果（Eva 划分）
 
+此文件已过时。当前完整汇总见 [`benchmark-tsb-ad.md`](benchmark-tsb-ad.md)。
+
 快照时间：2026-09-01（Time-RCD 双侧已齐）。结果来自 `results/benchmark/`，只汇总**该划分下单元集合已经齐全**的方法。
 
 ## 纳入规则

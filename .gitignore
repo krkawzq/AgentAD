@@ -39,3 +39,4 @@ pretrained/
 # Benchmark run artifacts (legacy path: benchmarks/)
 benchmarks/
 outputs/
+results/

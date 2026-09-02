@@ -179,7 +179,8 @@ def train_series(
             batches, batch_size=None, collate_fn=lambda item: item
         ),
     )
-    module.model.fit_memory(series)
+    module = module.to(device)
+    module.model.fit_memory(series.to(device))
     return module
 
 

@@ -141,7 +141,7 @@ def train_split(
         DataLoader(val_set, batch_size=config.batch_size, shuffle=False),
     )
     # on_train_end has already restored the best-validation weights.
-    return module
+    return module.to(device)
 
 
 def save_checkpoint(

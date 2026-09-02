@@ -339,6 +339,7 @@ class PaAno(nn.Module):
             )
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
+        patches = patches.to(device=next(self.encoder.parameters()).device)
         with evaluation_mode(self):
             embeddings = [self.encoder(chunk) for chunk in patches.split(batch_size)]
             selected = self._select_coreset(torch.cat(embeddings))

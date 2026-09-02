@@ -34,6 +34,7 @@ METHOD_NAME = "xLSTMAD"
 # min_delta=1e-3 come from the original Trainer (models/xLSTMAD.py:159-171).
 DEFAULT_HP: Mapping[str, Any] = {
     "window_length": 100,
+    "embedding_dim": 40,
     "learning_rate": 1e-3,
     "epochs": 50,
     "early_stopping_patience": 3,
@@ -62,10 +63,10 @@ def build_config(
     vanilla backend), so neither is part of ``DEFAULT_HP``.
     """
     merged = {**DEFAULT_HP, **(hp or {})}
-    merged.setdefault(
-        "scalar_backend",
-        "cuda" if torch.device(device).type == "cuda" else "vanilla",
-    )
+    # xlstm 2.0.5's CUDA sLSTM extension fails to link on current nvcc/torch
+    # (undefined SLSTMPointwiseForward). The vanilla backend is the same
+    # recurrence, just not the custom kernel.
+    merged.setdefault("scalar_backend", "vanilla")
     config = XLSTMADConfig.original_default(
         input_features=input_features,
         window_length=merged.pop("window_length"),
@@ -122,7 +123,7 @@ def train_series(
         enable_model_summary=False,
     )
     trainer.fit(module, train_dataloaders=train_loader, val_dataloaders=val_loader)
-    return module
+    return module.to(device)
 
 
 def save_checkpoint(

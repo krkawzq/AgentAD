@@ -10,7 +10,7 @@ from typing import Literal, Self
 class XLSTMADConfig:
     input_features: int
     window_length: int = 20
-    embedding_dim: int = 55
+    embedding_dim: int = 40
     blocks: int = 3
     scalar_memory_blocks: tuple[int, ...] = (0, 1)
     heads: int = 4
@@ -59,6 +59,8 @@ class XLSTMADConfig:
             raise ValueError("validation_fraction must be in [0, 1)")
         if self.early_stopping_min_delta < 0:
             raise ValueError("early_stopping_min_delta must be non-negative")
+        if self.embedding_dim % self.heads != 0:
+            raise ValueError("embedding_dim must be a multiple of heads")
 
     @classmethod
     def original_default(
