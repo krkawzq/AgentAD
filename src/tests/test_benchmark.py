@@ -23,6 +23,13 @@ from agentad.benchmark import (
     unit_dir,
     write_metrics,
 )
+from agentad.benchmark.tsbad_reference import (
+    TSB_AD_LEADERBOARD_COMMIT,
+    leaderboard_hp,
+    official_hp,
+    resolve_protocol,
+    validate_reference,
+)
 
 
 def _collection(item: SeriesItem) -> SeriesData:
@@ -136,6 +143,98 @@ def test_atomic_binary_write_preserves_previous_target_on_failure(tmp_path):
     json_target = tmp_path / "artifact.json"
     atomic_write_json(json_target, {"ok": True})
     assert json_target.read_text(encoding="utf-8") == '{"ok":true}'
+
+
+def test_tsb_ad_protocol_profiles_distinguish_legacy_and_submissions():
+    pca_u = resolve_protocol("PCA", "U")
+    pca_m = resolve_protocol("PCA", "M")
+    time_rcd = resolve_protocol("Time-RCD", "U")
+    tspulse = resolve_protocol("TSPulse (FT)", "M")
+
+    assert pca_u.official_name == "Sub_PCA"
+    assert pca_m.official_name == "PCA"
+    assert pca_u.provenance == "tsb-ad-2024"
+    assert time_rcd.official_name == "Time_RCD"
+    assert time_rcd.score_scope == "test"
+    assert time_rcd.provenance == "community-submission"
+    assert tspulse.official_name == "TSPulse_FT"
+    assert tspulse.score_scope == "full"
+
+
+def test_tsb_ad_pinned_archive_and_hp_are_validated(tmp_path):
+    reference = tmp_path / "TSB-AD"
+    (reference / "TSB_AD").mkdir(parents=True)
+    (reference / "benchmark_exp").mkdir()
+    (reference / "TSB_AD" / "model_wrapper.py").write_text("", encoding="utf-8")
+    (reference / "TSB_AD" / "HP_list.py").write_text(
+        "Optimal_Uni_algo_HP_dict = {'Sub_PCA': {'periodicity': 1}}\n"
+        "Optimal_Multi_algo_HP_dict = {'PCA': {'n_components': 0.25}}\n",
+        encoding="utf-8",
+    )
+    (reference / "benchmark_exp" / "Run_Detector_U.py").write_text(
+        "", encoding="utf-8"
+    )
+    (reference / "benchmark_exp" / "Run_Detector_M.py").write_text(
+        "", encoding="utf-8"
+    )
+    (reference / ".agentad-reference.json").write_text(
+        '{"commit":"' + TSB_AD_LEADERBOARD_COMMIT + '"}', encoding="utf-8"
+    )
+
+    identity = validate_reference(reference)
+    assert identity["kind"] == "pinned-archive"
+    assert identity["commit"] == TSB_AD_LEADERBOARD_COMMIT
+    assert official_hp(reference, "U", "Sub_PCA") == {"periodicity": 1}
+    assert leaderboard_hp(reference, "M", "TSPulse_ZS") == {
+        "win_size": 96,
+        "prediction_mode": "time",
+    }
+    assert leaderboard_hp(reference, "M", "Time_RCD")["win_size"] == (
+        "min(10000, floor(400000 / n_features))"
+    )
+
+
+def test_write_metrics_accepts_per_series_vus_windows(tmp_path):
+    split = _split(tmp_path)
+    unit = unit_dir(tmp_path / "outputs", "Toy", split)
+    results = unit_dir(tmp_path / "results", "Toy", split)
+    _prepare(unit, split)
+    save_score(unit, "s", np.array([0.0, 0.1, 0.2, 0.8, 0.9]))
+    frame = write_metrics(
+        split,
+        unit,
+        results,
+        metrics=("VUS-PR",),
+        sliding_window={"s": 2},
+    )
+    assert frame.loc[0, "sliding_window"] == 2
+
+
+def test_write_metrics_can_evaluate_submission_test_suffix(tmp_path):
+    split = _split(tmp_path)
+    unit = unit_dir(tmp_path / "outputs", "SuffixToy", split)
+    results = unit_dir(tmp_path / "results", "SuffixToy", split)
+    prepare_run(
+        unit,
+        split,
+        method="SuffixToy",
+        partition="Eva",
+        seed=7,
+        hp={},
+        resume=False,
+        implementation_file=__file__,
+    )
+    save_score(unit, "s", np.array([0.0, 0.8, 0.9]))
+    frame = write_metrics(
+        split,
+        unit,
+        results,
+        metrics=("VUS-PR",),
+        sliding_window={"s": 2},
+        score_scope="test",
+    )
+    assert frame.loc[0, "n_points"] == 3
+    assert not frame.loc[0, "full_eval"]
 
 
 def test_baseline_driver_batches_every_task_once():

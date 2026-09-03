@@ -88,6 +88,15 @@ catalog includes point, range-AUC, VUS, PA, event, affiliation, interval,
 delay-aware, PATE and first-hit protocols. See
 `src/agentad/evaluation/README.md` for the metric survey and module boundaries.
 
+## TSB-AD leaderboard reproduction
+
+The public leaderboard now combines the original 2024 benchmark with later
+community submissions. Use the isolated, commit-pinned reference runner—not the
+AgentAD-native method scripts—when exact leaderboard parity is required. It
+calls the official wrappers in Eva-file order and verifies per-series VUS-PR
+against the result CSVs shipped by TSB-AD. See
+[`docs/tsb-ad-leaderboard-reproduction.md`](docs/tsb-ad-leaderboard-reproduction.md).
+
 ## Build
 
 Run full preprocessing only on a valid PJLab pod, never on the dev box.

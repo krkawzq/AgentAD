@@ -1,5 +1,10 @@
 # TSB-AD 评测结果（Eva 划分）
 
+> **范围说明（2026-09-03）：** 以下数值来自 AgentAD 本地实现，并不等于当前公开
+> TSB-AD 榜单的严格复现。公开榜单混合了 2024 原始 benchmark 和后续社区提交，
+> 其中部分方法有提交专用协议。需要与公开榜单比较时，请使用固定官方源码版本的
+> [严格复现流程](tsb-ad-leaderboard-reproduction.md)，不要把本页数值当作官方 parity。
+
 快照时间：2026-09-02。结果来自 `results/benchmark/`。已完成配置 **28 / 33**（19 baseline + 4 预训练 + ScatterAD / CrossAD / Left / MMPAD / PaAno），共 1985 张 `metrics.csv`。表内只收录该划分下单元已齐的方法（单变量 23/23 且多变量 46/46）。
 
 ## 评测设定

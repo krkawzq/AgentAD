@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 import hashlib
 from pathlib import Path
 from typing import Literal
@@ -38,7 +38,8 @@ def write_metrics(
     *,
     metrics: Iterable[MetricName] = DEFAULT_METRICS,
     label_column: str = "label",
-    sliding_window: int | Literal["auto"] = "auto",
+    sliding_window: int | Literal["auto"] | Mapping[str, int] = "auto",
+    score_scope: Literal["full", "test"] = "full",
 ) -> pd.DataFrame:
     """Evaluate every stored score of one dataset unit and write metrics.csv.
 
@@ -47,6 +48,8 @@ def write_metrics(
     partial runs fail without publishing a completion marker. ``metrics.csv``
     and ``completion.json`` are replaced atomically in that order.
     """
+    if score_scope not in ("full", "test"):
+        raise ValueError(f"invalid score scope: {score_scope!r}")
     selected = tuple(metrics)
     missing = [
         series_id for series_id in split.test.ids if not has_score(unit, series_id)
@@ -58,7 +61,7 @@ def write_metrics(
     scores = {series_id: load_score(unit, series_id) for series_id in split.test.ids}
     result = evaluate_collection(
         split.test,
-        split.train,
+        split.train if score_scope == "full" else None,
         scores=scores,
         metrics=selected,
         label_column=label_column,

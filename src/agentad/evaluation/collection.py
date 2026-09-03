@@ -384,7 +384,7 @@ def evaluate_collection(
     predictions: Mapping[str, ArrayLike] | None = None,
     metrics: Iterable[MetricName] = DEFAULT_METRICS,
     label_column: str = "label",
-    sliding_window: int | Literal["auto"] = "auto",
+    sliding_window: int | Literal["auto"] | Mapping[str, int] = "auto",
     threshold_count: int = 100,
     vus_threshold_count: int = 250,
     range_alpha: float = 0.2,
@@ -412,9 +412,10 @@ def evaluate_collection(
     id; mapped predictions are equal-length binary vectors.
 
     ``sliding_window="auto"`` estimates a point-count window from the first
-    feature, so train/test feature metadata and dtypes must match. Explicit
-    windows, buffers, delays and tolerances are interpreted in concatenated
-    array order, not timestamp units. ``on_error`` is a per-series policy;
+    feature, so train/test feature metadata and dtypes must match. A mapping
+    supplies an explicit window per series id. Explicit windows, buffers,
+    delays and tolerances are interpreted in concatenated array order, not
+    timestamp units. ``on_error`` is a per-series policy;
     ``raise`` preserves the original exception, while ``nan`` and ``zero``
     retain an error column for auditability. ``save_scores_to`` writes only
     successfully evaluated, full-length scores as a new series collection.
@@ -431,7 +432,22 @@ def evaluate_collection(
         raise TypeError("predictions must be a mapping")
     if on_error not in ("nan", "zero", "raise"):
         raise ValueError(f"invalid on_error policy: {on_error!r}")
-    if sliding_window != "auto":
+    if isinstance(sliding_window, Mapping):
+        missing_windows = [
+            series_id for series_id in test.ids if series_id not in sliding_window
+        ]
+        if missing_windows:
+            raise ValueError(
+                f"{len(missing_windows)} series lack a sliding window, "
+                f"e.g. {missing_windows[:3]}"
+            )
+        sliding_window = {
+            series_id: non_negative_integer(
+                sliding_window[series_id], name=f"sliding_window[{series_id!r}]"
+            )
+            for series_id in test.ids
+        }
+    elif sliding_window != "auto":
         sliding_window = non_negative_integer(sliding_window, name="sliding_window")
 
     selected = _metric_selection(metrics)
@@ -518,6 +534,8 @@ def evaluate_collection(
 
                 assert series.period_values is not None
                 window = find_period(series.period_values)
+            elif needs_vus and isinstance(sliding_window, Mapping):
+                window = sliding_window[series_id]
             elif needs_vus:
                 window = int(sliding_window)
             else:
